@@ -3,20 +3,43 @@ requires = ["hatchling"]
 build-backend = "hatchling.build"
 
 [project]
-name = "openagent"
+name = "fastapi-openapi-agent"
 version = "0.1.0"
-description = "An OpenAPI-native API agent core with framework adapters."
+description = "An OpenAPI-native API agent and embeddable FastAPI assistant."
 readme = "README.md"
 requires-python = ">=3.9"
-license = { text = "MIT" }
+license = { file = "LICENSE" }
 authors = [
   { name = "openagent contributors" }
 ]
-keywords = ["openapi", "agent", "api", "fastapi", "sidebar"]
+keywords = ["openapi", "agent", "api", "fastapi", "llm", "sidebar", "sse"]
+classifiers = [
+  "Development Status :: 3 - Alpha",
+  "Framework :: FastAPI",
+  "Intended Audience :: Developers",
+  "License :: OSI Approved :: MIT License",
+  "Operating System :: OS Independent",
+  "Programming Language :: Python :: 3",
+  "Programming Language :: Python :: 3 :: Only",
+  "Programming Language :: Python :: 3.9",
+  "Programming Language :: Python :: 3.10",
+  "Programming Language :: Python :: 3.11",
+  "Programming Language :: Python :: 3.12",
+  "Programming Language :: Python :: 3.13",
+  "Topic :: Internet :: WWW/HTTP",
+  "Topic :: Software Development :: Libraries :: Python Modules",
+  "Typing :: Typed"
+]
 dependencies = [
   "pydantic>=1.10.0",
   "httpx>=0.24.0"
 ]
+
+[project.urls]
+Homepage = "https://github.com/yangsengui/fastapi-openapi-agent"
+Repository = "https://github.com/yangsengui/fastapi-openapi-agent"
+Issues = "https://github.com/yangsengui/fastapi-openapi-agent/issues"
+Changelog = "https://github.com/yangsengui/fastapi-openapi-agent/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
 fastapi = [
@@ -25,7 +48,13 @@ fastapi = [
 dev = [
   "fastapi>=0.100.0",
   "pytest>=7.4.0",
-  "uvicorn[standard]>=0.23.0"
+  "uvicorn[standard]>=0.23.0",
+  "build>=1.2.0",
+  "twine>=5.0.0"
+]
+release = [
+  "build>=1.2.0",
+  "twine>=5.0.0"
 ]
 
 [tool.hatch.build.targets.wheel]
@@ -33,6 +62,8 @@ packages = ["src/openagent"]
 
 [tool.hatch.build.targets.sdist]
 include = [
+  "CHANGELOG.md",
+  "LICENSE",
   "src",
   "frontend",
   "examples",

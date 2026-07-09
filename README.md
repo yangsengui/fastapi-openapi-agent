@@ -1,45 +1,43 @@
-# openagent
+# OpenAgent
 
-一个 OpenAPI-native API Agent 框架：核心逻辑基于 OpenAPI schema 工作，FastAPI 只是当前第一个 adapter。
+OpenAgent is an OpenAPI-native API agent for FastAPI. It mounts an assistant on top of an existing FastAPI app, reads the app's OpenAPI schema, and can answer questions, inspect operation contracts, and optionally execute host API calls in-process through ASGI.
 
-## 功能
+The PyPI distribution name is `fastapi-openapi-agent`. The Python import package is `openagent`.
 
-- `openagent` 提供框架无关的 OpenAPI operation 检索、contract 获取和 tool runtime。
-- `openagent.fastapi.install_openapi_agent(app)` 一行接入现有 FastAPI 应用。
-- FastAPI adapter 自动读取当前应用 OpenAPI schema。
-- 提供 agent 页面：默认路径 `/_agent/`。
-- 提供静态嵌入脚本：`/_agent/sidebar.js`，脚本只负责挂载 iframe。
-- Agent UI 是独立 React/Vite SPA，构建后由 FastAPI 从 `/_agent/widget/` 提供。
-- 默认内置本地检索式 responder，方便离线开发和验证。
-- 可传入自定义 responder 接入真实 LLM 或内部 agent 平台。
-- DeepSeek 模式支持 agent tool-calling：`operation_search`、`operation_get`、`operation_request`。
-- `operation_request` 通过 ASGI 在进程内调用宿主 FastAPI，不额外走公网 HTTP。
-- 提供 `/chat/stream` SSE 接口，按事件流输出文本增量和工具调用链。
+> Status: alpha. APIs may change before the first stable release.
 
-## 快速开始
+## Features
+
+- One-line FastAPI integration with `install_openapi_agent(app)`.
+- Framework-neutral OpenAPI runtime for operation search, contract lookup, and tool execution.
+- Built-in agent page at `/_agent/` and embeddable widget at `/_agent/widget/`.
+- Static sidebar loader at `/_agent/sidebar.js` for adding a floating API assistant to any page.
+- SSE chat endpoint at `/_agent/chat/stream` with text deltas and tool-call events.
+- JSON fallback endpoint at `/_agent/chat`.
+- Local deterministic OpenAPI responder for offline development.
+- DeepSeek responder with tool calling for `operation_search`, `operation_get`, and `operation_request`.
+- In-process host API execution through `httpx.ASGITransport`; no public HTTP round trip is required.
+- Parent-page request bridge for custom auth, tenant headers, request signing, or token refresh.
+
+## Installation
+
+Install the FastAPI adapter:
 
 ```bash
-devyard run install
-devyard run build
-devyard up -d
-devyard status
+pip install "fastapi-openapi-agent[fastapi]"
 ```
 
-打开 devyard 输出的 `api` 地址：
+For local development from source:
 
-- `/_agent/`：独立 agent 页面。
-- `/_agent/widget/`：React SPA widget。
-- `/docs`：FastAPI Swagger 文档。
-- `/_agent/sidebar.js`：可嵌入侧边栏组件。
-
-## 包结构
-
-```text
-openagent                  # 框架无关核心：models、responder、runtime、DeepSeek tool-calling
-openagent.fastapi          # FastAPI adapter：路由挂载、静态资源、ASGI 进程内调用
+```bash
+pip install -e ".[dev]"
+npm install --prefix frontend
+npm run build --prefix frontend
 ```
 
-## FastAPI 接入
+The frontend build step generates `src/openagent/static/sidebar.js` and `src/openagent/static/widget/`. These files are included in the Python wheel so users installing from PyPI do not need Node.js.
+
+## Quick Start
 
 ```python
 from fastapi import FastAPI
@@ -50,23 +48,16 @@ app = FastAPI(title="My API")
 install_openapi_agent(app)
 ```
 
-启用 API 调用 agent 能力：
+Start your FastAPI app and open:
 
-```python
-install_openapi_agent(
-    app,
-    enable_api_calls=True,
-    allow_mutating_api_calls=False,  # 默认只允许 GET/HEAD/OPTIONS
-)
-```
+- `/_agent/` for the standalone agent page.
+- `/_agent/widget/` for the widget SPA.
+- `/_agent/sidebar.js` for the embeddable sidebar loader.
+- `/docs` for the normal FastAPI Swagger UI.
 
-如果你的业务明确允许 agent 执行写操作，可以显式开启：
+## FastAPI Integration
 
-```python
-install_openapi_agent(app, allow_mutating_api_calls=True)
-```
-
-自定义路径和标题：
+Customize the route prefix and UI metadata:
 
 ```python
 install_openapi_agent(
@@ -77,34 +68,31 @@ install_openapi_agent(
 )
 ```
 
-## 前端嵌入
+Enable live host API calls:
 
-在任意页面加入脚本即可新增悬浮侧边栏：
+```python
+install_openapi_agent(
+    app,
+    enable_api_calls=True,
+    allow_mutating_api_calls=False,
+)
+```
+
+By default, live execution only allows `GET`, `HEAD`, and `OPTIONS`. If your product explicitly allows write operations, enable mutating calls:
+
+```python
+install_openapi_agent(app, allow_mutating_api_calls=True)
+```
+
+## Frontend Embed
+
+Add a floating sidebar to any page served by the same app:
 
 ```html
 <script src="/_agent/sidebar.js"></script>
 ```
 
-`sidebar.js` 由 `frontend/src/sidebar-loader.ts` 构建生成，只负责：
-
-- 创建右下角启动按钮。
-- 创建 iframe 并加载 `/_agent/widget/`。
-- 支持嵌入到指定容器。
-- 侧边栏默认 `560px` 宽、撑满视口高度，左侧拖拽可调整宽度并记住设置。
-- 支持 `Ctrl/Cmd + E` 切换浮窗。
-
-主体聊天 UI、流式输出、工具调用链、历史会话和 Markdown 渲染都在 `frontend/src/App.tsx` SPA 中实现。
-
-侧边栏默认优先调用 `/_agent/chat/stream`：
-
-- `text-delta`：模型回答增量。
-- `tool-input-start` / `tool-input-available`：工具调用开始和入参。
-- `tool-output-available` / `tool-output-error`：工具输出或失败。
-- `finish`：最终回答、命中的 OpenAPI operations 和完整 tool results。
-
-如果流式接口不可用，前端会自动回退到 `/_agent/chat`。
-
-如果前端和 FastAPI 不在同一路径，可以显式配置：
+Configure cross-path or cross-origin embedding:
 
 ```html
 <script>
@@ -120,30 +108,79 @@ install_openapi_agent(
 <script src="https://api.example.com/_agent/sidebar.js"></script>
 ```
 
-也可以嵌入到指定容器，而不是悬浮侧边栏：
+Embed the widget into a container instead of using a floating drawer:
 
 ```html
 <div id="agent-root"></div>
 <script>
-  window.OpenAgent = { baseUrl: "/_agent", container: "#agent-root" };
+  window.OpenAgent = {
+    baseUrl: "/_agent",
+    container: "#agent-root"
+  };
 </script>
 <script src="/_agent/sidebar.js"></script>
 ```
 
-## 接入真实 LLM
+The sidebar supports resizing, persists the chosen width, and can be toggled with `Ctrl/Cmd + E`.
 
-默认 responder 不调用外部模型，只基于 OpenAPI 文本做确定性匹配。
+## Custom Request Bridge
 
-### DeepSeek
+If the host product already has a frontend request layer, provide `window.OpenAgent.request`. The widget runs inside an iframe, so `sidebar.js` bridges iframe requests to the parent page and lets your code execute the actual request.
 
-设置环境变量后，示例应用会自动使用 DeepSeek：
+```html
+<script>
+  window.OpenAgent = {
+    baseUrl: "https://api.example.com/_agent",
+    async request(input) {
+      const token = await getAccessToken();
 
-```bash
-export DEEPSEEK_API_KEY="你的 DeepSeek API Key"
-devyard up -d
+      return fetch(input.url, {
+        method: input.method,
+        headers: {
+          ...input.headers,
+          Authorization: `Bearer ${token}`,
+          "X-Tenant-ID": getTenantId()
+        },
+        body: input.body,
+        credentials: "include"
+      });
+    }
+  };
+</script>
+<script src="https://api.example.com/_agent/sidebar.js"></script>
 ```
 
-在自己的 FastAPI 应用中显式接入：
+`request(input)` must return a standard `fetch` `Response`. The bridge covers `/_agent/chat/stream` and `/_agent/chat`. Stream responses are forwarded to the iframe chunk by chunk. For safety, the bridge only allows requests under the configured `baseUrl`.
+
+## Authentication
+
+There are two separate auth concerns.
+
+Protect the agent routes with your normal FastAPI authentication layer, for example by mounting the agent behind authenticated middleware, a protected router, or reverse-proxy auth.
+
+Forward the current user identity when the agent calls host APIs. The FastAPI adapter forwards selected headers into in-process API calls:
+
+```python
+install_openapi_agent(
+    app,
+    forward_headers=("authorization", "cookie"),
+    allow_mutating_api_calls=False,
+)
+```
+
+If your frontend is cross-origin, the request bridge is usually the safest place to attach JWTs, cookies, tenant IDs, or gateway signatures.
+
+## DeepSeek LLM Integration
+
+The default responder does not call an external model. It uses deterministic OpenAPI matching so local development works without credentials.
+
+Set `DEEPSEEK_API_KEY` to enable the built-in DeepSeek responder automatically:
+
+```bash
+export DEEPSEEK_API_KEY="your-api-key"
+```
+
+Or configure it explicitly:
 
 ```python
 from openagent.deepseek import create_deepseek_responder
@@ -152,55 +189,108 @@ from openagent.fastapi import install_openapi_agent
 install_openapi_agent(app, responder=create_deepseek_responder())
 ```
 
-如果没有显式传入 `responder`，并且环境变量里存在 `DEEPSEEK_API_KEY`，插件会自动启用带工具调用能力的 DeepSeek agent。
-
-API 执行的标准调用链是：
+When tool calling is enabled, the expected API execution chain is:
 
 ```text
 operation_search -> operation_get -> operation_request -> final answer
 ```
 
-流式模式会先强制执行一次 `operation_search` 预检，保证前端能展示完整调用链；随后模型基于搜索结果继续读取 contract 并执行 API。
+## Custom Responder
 
-可以调整模型：
-
-```python
-install_openapi_agent(
-    app,
-    responder=create_deepseek_responder(model="deepseek-chat"),
-)
-```
-
-### 自定义 responder
-
-生产环境也可以传入任意自定义 responder：
+You can replace the built-in responder with your own LLM, internal agent platform, or policy layer:
 
 ```python
 from openagent import AgentRequest, AgentResponse
 from openagent.fastapi import install_openapi_agent
 
 async def my_responder(request: AgentRequest, openapi: dict) -> AgentResponse:
-    # 在这里调用你的 LLM，把 openapi 作为上下文或工具信息传入。
-    return AgentResponse(answer="LLM response", operations=[], sources=[])
+    return AgentResponse(
+        answer="LLM response",
+        operations=[],
+        sources=[],
+    )
 
 install_openapi_agent(app, responder=my_responder)
 ```
 
-## 本地命令
+## Local Demo
+
+With devyard:
 
 ```bash
 devyard run install
 devyard run build
-devyard run test
 devyard up -d
-devyard logs -f api
-devyard down
+devyard status
 ```
 
-前端单独开发：
+Without devyard:
 
 ```bash
-npm run dev --prefix frontend
+pip install -e ".[dev]"
+npm install --prefix frontend
+npm run build --prefix frontend
+python -m uvicorn examples.demo:app --reload
+```
+
+Then open `http://127.0.0.1:8000/_agent/`.
+
+## Development
+
+```bash
 npm run check --prefix frontend
 npm run build --prefix frontend
+pytest
 ```
+
+Full local validation:
+
+```bash
+npm run check --prefix frontend && npm run build --prefix frontend && pytest
+```
+
+## Packaging
+
+Build and inspect the Python distributions:
+
+```bash
+pip install -e ".[dev]"
+npm run build --prefix frontend
+python -m build
+python -m twine check dist/*
+```
+
+Inspect the wheel contents before publishing:
+
+```bash
+python -m zipfile -l dist/fastapi_openapi_agent-*.whl
+```
+
+The wheel should include:
+
+- `openagent/static/sidebar.js`
+- `openagent/static/widget/index.html`
+- `openagent/static/widget/assets/...`
+- `openagent/py.typed`
+
+## PyPI Release
+
+This repository includes `.github/workflows/publish.yml` for PyPI Trusted Publishing.
+
+Recommended release flow:
+
+1. Update `version` in `pyproject.toml`.
+2. Update `CHANGELOG.md`.
+3. Run the packaging checks above.
+4. Create a GitHub release or trigger the publish workflow manually.
+5. Configure the PyPI project trusted publisher for `yangsengui/fastapi-openapi-agent` before the first automated release.
+
+Manual upload is also possible:
+
+```bash
+python -m twine upload dist/*
+```
+
+## License
+
+MIT. See `LICENSE`.
