@@ -15,7 +15,7 @@ The PyPI distribution name is `fastapi-openapi-agent`. The Python import package
 - SSE chat endpoint at `/_agent/chat/stream` with text deltas and tool-call events.
 - JSON fallback endpoint at `/_agent/chat`.
 - Local deterministic OpenAPI responder for offline development.
-- DeepSeek responder with tool calling for `operation_search`, `operation_get`, and `operation_request`.
+- LiteLLM responder for DeepSeek, OpenAI, Anthropic, Gemini, Azure, and other providers.
 - In-process host API execution through `httpx.ASGITransport`; no public HTTP round trip is required.
 - Parent-page request bridge for custom auth, tenant headers, request signing, or token refresh.
 
@@ -27,10 +27,16 @@ Install the FastAPI adapter:
 pip install "fastapi-openapi-agent[fastapi]"
 ```
 
+Add the LiteLLM integration when using an external model:
+
+```bash
+pip install "fastapi-openapi-agent[fastapi,llm]"
+```
+
 For local development from source:
 
 ```bash
-pip install -e ".[dev]"
+pip install -e ".[dev,llm]"
 npm install --prefix frontend
 npm run build --prefix frontend
 ```
@@ -170,30 +176,87 @@ install_openapi_agent(
 
 If your frontend is cross-origin, the request bridge is usually the safest place to attach JWTs, cookies, tenant IDs, or gateway signatures.
 
-## DeepSeek LLM Integration
+## Multi-Provider LLM Integration
 
-The default responder does not call an external model. It uses deterministic OpenAPI matching so local development works without credentials.
+OpenAgent uses [LiteLLM](https://docs.litellm.ai/) as its provider-neutral model layer. LiteLLM exposes one OpenAI-style Python API for DeepSeek, OpenAI, Anthropic, Gemini, Azure, Bedrock, OpenRouter, Ollama, and other providers. The default OpenAgent responder remains deterministic and makes no external request until a model is configured.
 
-Set `DEEPSEEK_API_KEY` to enable the built-in DeepSeek responder automatically:
+Set `OPENAGENT_MODEL` to a LiteLLM model name and provide that provider's normal credentials. OpenAgent then enables the model responder automatically:
 
 ```bash
+# DeepSeek
+export OPENAGENT_MODEL="deepseek/deepseek-chat"
 export DEEPSEEK_API_KEY="your-api-key"
+
+# OpenAI
+export OPENAGENT_MODEL="openai/gpt-4o-mini"
+export OPENAI_API_KEY="your-api-key"
+
+# Anthropic
+export OPENAGENT_MODEL="anthropic/claude-sonnet-4-5"
+export ANTHROPIC_API_KEY="your-api-key"
+
+# Gemini
+export OPENAGENT_MODEL="gemini/gemini-2.5-flash"
+export GEMINI_API_KEY="your-api-key"
 ```
 
-Or configure it explicitly:
+Only configure one model for a running application. The examples are alternatives, not a single combined configuration.
+
+The same options can be passed directly to the FastAPI adapter:
 
 ```python
-from openagent.deepseek import create_deepseek_responder
 from openagent.fastapi import install_openapi_agent
 
-install_openapi_agent(app, responder=create_deepseek_responder())
+install_openapi_agent(
+    app,
+    llm_model="openai/gpt-4o-mini",
+    llm_api_key="your-api-key",  # Prefer a secret environment variable in production.
+)
 ```
 
-When tool calling is enabled, the expected API execution chain is:
+For a LiteLLM Proxy or another OpenAI-compatible gateway, set a custom base URL:
+
+```bash
+export OPENAGENT_MODEL="openai/my-model"
+export OPENAGENT_API_KEY="gateway-key"
+export OPENAGENT_BASE_URL="http://localhost:4000/v1"
+```
+
+Provider-specific LiteLLM options can be supplied through `llm_model_kwargs`:
+
+```python
+install_openapi_agent(
+    app,
+    llm_model="azure/my-deployment",
+    llm_model_kwargs={"api_version": "2024-10-21"},
+)
+```
+
+Or create a responder explicitly:
+
+```python
+from openagent import create_llm_responder
+from openagent.fastapi import install_openapi_agent
+
+responder = create_llm_responder(model="openrouter/openai/gpt-4o-mini")
+install_openapi_agent(app, responder=responder)
+```
+
+The explicit responder can search operations and load contracts locally. Because it has no host application invoker, live `operation_request` calls remain disabled. Use automatic LiteLLM integration or a custom `OpenAPIAgent` backend when live host API execution is required. Select a model that supports tool calling.
+
+A bare model name without a provider prefix is treated as a DeepSeek model, so `deepseek-chat` is normalized to `deepseek/deepseek-chat`. New code should use `create_llm_responder` and `stream_llm_agent`.
+
+For large APIs, the initial metadata catalog is compacted to `max_context_chars`. If every operation cannot fit, the context sets `catalogComplete` to `false` and the model uses `operation_search` before loading the selected contract. Operations without an `operationId` are addressed by method and path.
+
+The model initially receives a compact catalog of every operation's metadata, including method, path, operationId, summary, description, tags, parameter names, and response status codes. Request and response schemas are not included in that initial context. The selected operation's full contract and referenced schemas are loaded on demand with `operation_get`.
+
+When tool calling is enabled, the required API execution chain is:
 
 ```text
-operation_search -> operation_get -> operation_request -> final answer
+operation_get -> operation_request -> final answer
 ```
+
+`operation_search` remains available as an optional catalog filter. The runtime rejects `operation_request` unless the same operation was first loaded with `operation_get` during that agent run.
 
 ## Custom Responder
 
@@ -212,6 +275,59 @@ async def my_responder(request: AgentRequest, openapi: dict) -> AgentResponse:
 
 install_openapi_agent(app, responder=my_responder)
 ```
+
+## Custom Agent SDK
+
+Use the core SDK when a custom implementation needs operation discovery, detailed contracts, runtime tools, and the standard JSON/SSE routes. `OperationCatalog` keeps schema-free metadata separate from contracts loaded on demand.
+
+```python
+from openagent import (
+    AgentBackend,
+    AgentContext,
+    AgentResponse,
+    OpenAPIAgent,
+)
+from openagent.fastapi import install_openapi_agent
+
+
+class MyAgentBackend(AgentBackend):
+    async def respond(self, context: AgentContext) -> AgentResponse:
+        matches = context.catalog.search_operations(
+            context.request.message,
+            limit=1,
+        )
+        if not matches or not matches[0].operation_id:
+            return AgentResponse(answer="No matching operation was found.")
+
+        operation = matches[0]
+        contract = await context.run_tool(
+            "operation_get",
+            {"operationId": operation.operation_id},
+        )
+        return AgentResponse(
+            answer=f"Selected {operation.method} {operation.path}: {contract['preview']}",
+            sources=[f"{operation.method} {operation.path}"],
+        )
+
+
+agent = OpenAPIAgent(MyAgentBackend())
+install_openapi_agent(app, agent=agent)
+```
+
+Implementing `respond` is sufficient: `AgentBackend` converts it to the standard SSE event sequence automatically. Override `stream` to emit incremental typed events such as `TextDeltaEvent`, `ToolInputAvailableEvent`, and `ToolOutputAvailableEvent`.
+
+The catalog can also be used independently of FastAPI:
+
+```python
+from openagent import OperationCatalog
+
+catalog = OperationCatalog.from_openapi(openapi_document)
+metadata = catalog.list_operations()
+matches = catalog.search_operations("create user")
+contract = catalog.require_operation("create_user_users_post")
+```
+
+`OperationMetadata` contains no request or response schemas. `OperationContract` contains the selected operation, merged path-level parameters, risk metadata, and all referenced component schemas.
 
 ## Local Demo
 
@@ -275,15 +391,28 @@ The wheel should include:
 
 ## PyPI Release
 
-This repository includes `.github/workflows/publish.yml` for PyPI Trusted Publishing.
+This repository includes `.github/workflows/publish.yml` for token-free [PyPI Trusted Publishing](https://docs.pypi.org/trusted-publishers/). A published GitHub release automatically runs the frontend checks, Python tests, package build, `twine` validation, and PyPI upload. The release tag must match the version in `pyproject.toml`; both `0.1.0` and `v0.1.0` tag formats are accepted.
+
+Before the first release, configure a trusted publisher on PyPI with:
+
+- PyPI project name: `fastapi-openapi-agent`
+- GitHub owner: `yangsengui`
+- GitHub repository: `fastapi-openapi-agent`
+- Workflow filename: `publish.yml`
+- Environment name: `pypi`
+
+Create a `pypi` environment under the GitHub repository's **Settings > Environments** page. Environment reviewers are optional, but recommended when manual approval is required before production publication. No `PYPI_API_TOKEN` secret is needed.
 
 Recommended release flow:
 
 1. Update `version` in `pyproject.toml`.
 2. Update `CHANGELOG.md`.
 3. Run the packaging checks above.
-4. Create a GitHub release or trigger the publish workflow manually.
-5. Configure the PyPI project trusted publisher for `yangsengui/fastapi-openapi-agent` before the first automated release.
+4. Commit and push the release changes.
+5. Create and publish a GitHub release using a matching tag such as `v0.1.0`.
+6. Verify the `Publish Python Package` workflow and the release on PyPI.
+
+The workflow can also be started manually from **Actions > Publish Python Package > Run workflow**. By default, a manual run only tests and builds the distributions without publishing them. Enable the `publish` input to upload the version declared by the selected branch; PyPI rejects a version that has already been uploaded.
 
 Manual upload is also possible:
 

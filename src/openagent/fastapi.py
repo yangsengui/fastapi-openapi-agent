@@ -13,8 +13,10 @@ import httpx
 from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
+from .events import event_payload
 from .responder import AgentRequest, AgentResponse, default_openapi_responder
 from .runtime import OpenAPIAgentRuntime as CoreOpenAPIAgentRuntime
+from .sdk import OpenAPIAgent
 
 Responder = Callable[
     [AgentRequest, Dict[str, Any]], Union[AgentResponse, Awaitable[AgentResponse]]
@@ -37,8 +39,13 @@ class OpenAPIAgentConfig:
     open_by_default: bool = True
     enable_api_calls: bool = True
     allow_mutating_api_calls: bool = False
-    auto_deepseek: bool = True
+    auto_llm: bool = True
     forward_headers: tuple[str, ...] = ("authorization", "cookie")
+    agent: Optional[OpenAPIAgent] = None
+    llm_model: Optional[str] = None
+    llm_api_key: Optional[str] = None
+    llm_base_url: Optional[str] = None
+    llm_model_kwargs: Optional[Dict[str, Any]] = None
 
 
 class FastAPIOperationInvoker:
@@ -104,6 +111,8 @@ def install_openapi_agent(
     """Attach OpenAgent routes to an existing FastAPI application."""
 
     resolved = _resolve_config(config, overrides)
+    if resolved.agent is not None and resolved.responder is not None:
+        raise ValueError("Configure either agent or responder, not both.")
     base_path = _normalize_path(resolved.path)
 
     router = APIRouter(prefix=base_path, include_in_schema=resolved.include_in_schema)
@@ -156,26 +165,30 @@ def install_openapi_agent(
 
     @router.post("/chat", response_model=AgentResponse)
     async def chat(payload: AgentRequest, request: Request) -> AgentResponse:
+        openapi = app.openapi()
         runtime = OpenAPIAgentRuntime(
             app,
-            app.openapi(),
+            openapi,
             agent_path=base_path,
             enable_api_calls=resolved.enable_api_calls,
             allow_mutating_api_calls=resolved.allow_mutating_api_calls,
             request=request,
             forward_headers=resolved.forward_headers,
         )
+        if resolved.agent is not None:
+            return await resolved.agent.respond(payload, openapi, runtime)
         responder = _resolve_responder(resolved, runtime)
-        result = responder(payload, app.openapi())
+        result = responder(payload, openapi)
         if inspect.isawaitable(result):
             result = await result
         return result
 
     @router.post("/chat/stream")
     async def chat_stream(payload: AgentRequest, request: Request) -> StreamingResponse:
+        openapi = app.openapi()
         runtime = OpenAPIAgentRuntime(
             app,
-            app.openapi(),
+            openapi,
             agent_path=base_path,
             enable_api_calls=resolved.enable_api_calls,
             allow_mutating_api_calls=resolved.allow_mutating_api_calls,
@@ -184,16 +197,31 @@ def install_openapi_agent(
         )
 
         async def events():
-            if resolved.responder is None and resolved.auto_deepseek and os.getenv("DEEPSEEK_API_KEY"):
-                from .deepseek import stream_deepseek_agent
+            if resolved.agent is not None:
+                async for event in resolved.agent.stream(payload, openapi, runtime):
+                    yield _sse(event_payload(event))
+                yield "data: [DONE]\n\n"
+                return
 
-                async for event in stream_deepseek_agent(payload, app.openapi(), runtime.run_tool):
+            model = _resolve_llm_model(resolved)
+            if resolved.responder is None and model:
+                from .llm import stream_llm_agent
+
+                async for event in stream_llm_agent(
+                    payload,
+                    openapi,
+                    runtime.run_tool,
+                    model=model,
+                    api_key=resolved.llm_api_key,
+                    base_url=resolved.llm_base_url,
+                    model_kwargs=resolved.llm_model_kwargs,
+                ):
                     yield _sse(event)
                 yield "data: [DONE]\n\n"
                 return
 
             responder = _resolve_responder(resolved, runtime)
-            result = responder(payload, app.openapi())
+            result = responder(payload, openapi)
             if inspect.isawaitable(result):
                 result = await result
             result_payload = _model_dump(result)
@@ -239,11 +267,27 @@ def _resolve_responder(
 ) -> Responder:
     if config.responder is not None:
         return config.responder
-    if config.auto_deepseek and os.getenv("DEEPSEEK_API_KEY"):
-        from .deepseek import create_deepseek_responder
+    model = _resolve_llm_model(config)
+    if model:
+        from .llm import create_llm_responder
 
-        return create_deepseek_responder(tool_runner=runtime.run_tool)
+        return create_llm_responder(
+            model=model,
+            api_key=config.llm_api_key,
+            base_url=config.llm_base_url,
+            model_kwargs=config.llm_model_kwargs,
+            tool_runner=runtime.run_tool,
+        )
     return default_openapi_responder
+
+
+def _resolve_llm_model(config: OpenAPIAgentConfig) -> Optional[str]:
+    if not config.auto_llm:
+        return None
+    model = config.llm_model or os.getenv("OPENAGENT_MODEL")
+    if model:
+        return model
+    return None
 
 
 def _forwarded_request_headers(

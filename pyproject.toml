@@ -45,6 +45,10 @@ Changelog = "https://github.com/yangsengui/fastapi-openapi-agent/blob/main/CHANG
 fastapi = [
   "fastapi>=0.100.0"
 ]
+llm = [
+  "litellm>=1.40.0,<2.0.0",
+  "orjson>=3.9.0"
+]
 dev = [
   "fastapi>=0.100.0",
   "pytest>=7.4.0",

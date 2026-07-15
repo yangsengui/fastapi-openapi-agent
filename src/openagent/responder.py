@@ -143,11 +143,13 @@ def _parameter_names(parameters: Iterable[Dict[str, Any]]) -> List[str]:
     return names
 
 
-def _rank_operations(message: str, operations: List[OperationHit]) -> List[OperationHit]:
+def _rank_operations(
+    message: str, operations: List[OperationHit], limit: int = 8
+) -> List[OperationHit]:
     query_tokens = _tokens(message)
     method_tokens = {token.upper() for token in query_tokens if token in HTTP_METHODS}
     if not query_tokens and not method_tokens:
-        return operations[:8]
+        return operations[:limit]
 
     scored = []
     for operation in operations:
@@ -174,7 +176,7 @@ def _rank_operations(message: str, operations: List[OperationHit]) -> List[Opera
             scored.append((score, operation))
 
     scored.sort(key=lambda item: (-item[0], item[1].path, item[1].method))
-    return [operation for _, operation in scored[:8]]
+    return [operation for _, operation in scored[:limit]]
 
 
 def _tokens(value: str) -> Set[str]:

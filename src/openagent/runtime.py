@@ -5,10 +5,7 @@ import re
 from typing import Any, Dict, Mapping, Optional, Protocol
 from urllib.parse import quote
 
-from .responder import OperationHit, _iter_operations, _rank_operations
-
-
-READ_ONLY_METHODS = {"GET", "HEAD", "OPTIONS"}
+from .catalog import OperationCatalog, OperationContract
 
 
 class OperationInvoker(Protocol):
@@ -48,6 +45,8 @@ class OpenAPIAgentRuntime:
         self.enable_api_calls = enable_api_calls
         self.allow_mutating_api_calls = allow_mutating_api_calls
         self.forwarded_headers = dict(forwarded_headers or {})
+        self.catalog = OperationCatalog.from_openapi(openapi)
+        self._loaded_operations: set[tuple[str, str]] = set()
 
     async def run_tool(self, name: str, args: Dict[str, Any]) -> Dict[str, Any]:
         if name == "operation_search":
@@ -59,25 +58,21 @@ class OpenAPIAgentRuntime:
         return _failure(name, args, f"Unknown tool: {name}")
 
     def operation_search(self, args: Dict[str, Any]) -> Dict[str, Any]:
-        operations = list(_iter_operations(self.openapi))
         query = _search_text(args)
         method = _string(args.get("method")).upper()
         operation_id = _string(args.get("operationId") or args.get("operation"))
-
-        if operation_id:
-            hits = [op for op in operations if op.operation_id == operation_id]
-        else:
-            hits = _rank_operations(query, operations) if query else operations[:8]
-        if method:
-            hits = [op for op in hits if op.method == method]
-
         limit = _int(args.get("limit"), 8)
-        hits = hits[: max(1, min(limit, 20))]
+        hits = self.catalog.search_operations(
+            query,
+            method=method or None,
+            operation_id=operation_id or None,
+            limit=max(1, min(limit, 20)),
+        )
         return {
             "ok": True,
             "tool_name": "operation_search",
             "input": args,
-            "data": {"operations": [_dump_operation(hit) for hit in hits]},
+            "data": {"operations": [_dump_model(hit) for hit in hits]},
             "preview": f"Found {len(hits)} operation(s).",
         }
 
@@ -85,13 +80,14 @@ class OpenAPIAgentRuntime:
         record = self._find_operation(args)
         if not record:
             return _failure("operation_get", args, "Operation not found.")
-        method, path, operation = record
-        hit = _operation_hit(method, path, operation)
+        method = record.metadata.method
+        path = record.metadata.path
+        self._loaded_operations.add((method, path))
         data = {
-            "operation": _dump_operation(hit),
-            "risk": _operation_risk(method, operation),
-            "openapi_operation": operation,
-            "component_schemas": _component_schemas_for_value(self.openapi, operation),
+            "operation": _dump_model(record.metadata),
+            "risk": record.risk,
+            "openapi_operation": record.openapi_operation,
+            "component_schemas": record.component_schemas,
         }
         return {
             "ok": True,
@@ -112,11 +108,20 @@ class OpenAPIAgentRuntime:
         record = self._find_operation(args)
         if not record:
             return _failure("operation_request", args, "Operation not found.")
-        method, path_template, operation = record
+        method = record.metadata.method
+        path_template = record.metadata.path
+        if (method, path_template) not in self._loaded_operations:
+            return _failure(
+                "operation_request",
+                args,
+                "Operation contract must be loaded with operation_get before execution.",
+                method=method,
+                path=path_template,
+            )
         if path_template.startswith(self.agent_path + "/") or path_template == self.agent_path:
             return _failure("operation_request", args, "Agent internal routes cannot be called.")
 
-        risk = _operation_risk(method, operation)
+        risk = record.risk
         if risk != "read_only" and not self.allow_mutating_api_calls:
             return {
                 "ok": False,
@@ -173,22 +178,15 @@ class OpenAPIAgentRuntime:
             **({} if ok else {"error": f"HTTP {status_code}"}),
         }
 
-    def _find_operation(self, args: Dict[str, Any]) -> Optional[tuple[str, str, Dict[str, Any]]]:
+    def _find_operation(self, args: Dict[str, Any]) -> Optional[OperationContract]:
         operation_id = _string(args.get("operation") or args.get("operationId") or args.get("operation_id"))
-        method_arg = _string(args.get("method")).lower()
+        method_arg = _string(args.get("method"))
         path_arg = _string(args.get("path"))
-        paths = self.openapi.get("paths") or {}
-        for path, path_item in paths.items():
-            if not isinstance(path_item, dict):
-                continue
-            for method, operation in path_item.items():
-                if not isinstance(operation, dict):
-                    continue
-                if operation_id and operation.get("operationId") == operation_id:
-                    return method.upper(), path, operation
-                if path_arg and method_arg and path == path_arg and method.lower() == method_arg:
-                    return method.upper(), path, operation
-        return None
+        return self.catalog.find_operation(
+            operation_id=operation_id or None,
+            method=method_arg or None,
+            path=path_arg or None,
+        )
 
     def _request_headers(self, explicit: Dict[str, Any]) -> Dict[str, str]:
         headers = {str(name): str(value) for name, value in self.forwarded_headers.items()}
@@ -198,40 +196,10 @@ class OpenAPIAgentRuntime:
         return headers
 
 
-def _operation_hit(method: str, path: str, operation: Dict[str, Any]) -> OperationHit:
-    return OperationHit(
-        method=method.upper(),
-        path=path,
-        operation_id=operation.get("operationId"),
-        summary=operation.get("summary"),
-        description=operation.get("description"),
-        tags=list(operation.get("tags") or []),
-        parameters=[_parameter_name(parameter) for parameter in operation.get("parameters") or []],
-        request_body="requestBody" in operation,
-        responses=list((operation.get("responses") or {}).keys()),
-    )
-
-
-def _operation_risk(method: str, operation: Dict[str, Any]) -> str:
-    metadata = operation.get("x-acp-operation") or {}
-    risk = metadata.get("risk") if isinstance(metadata, dict) else None
-    if isinstance(risk, str) and risk.strip():
-        return risk.strip()
-    return "read_only" if method.upper() in READ_ONLY_METHODS else "mutating"
-
-
-def _parameter_name(parameter: Dict[str, Any]) -> str:
-    name = parameter.get("name")
-    location = parameter.get("in")
-    if name and location:
-        return f"{name} ({location})"
-    return str(name or "")
-
-
-def _dump_operation(operation: OperationHit) -> Dict[str, Any]:
-    if hasattr(operation, "model_dump"):
-        return operation.model_dump()
-    return operation.dict()
+def _dump_model(value: Any) -> Dict[str, Any]:
+    if hasattr(value, "model_dump"):
+        return value.model_dump()
+    return value.dict()
 
 
 def _search_text(args: Dict[str, Any]) -> str:
@@ -249,32 +217,6 @@ def _search_text(args: Dict[str, Any]) -> str:
             else:
                 parts.append(_string(item))
     return " ".join(part for part in parts if part)
-
-
-def _component_schemas_for_value(openapi: Dict[str, Any], value: Any) -> Dict[str, Any]:
-    schemas = ((openapi.get("components") or {}).get("schemas") or {})
-    names: set[str] = set()
-    _collect_refs(value, names)
-    previous_size = -1
-    while previous_size != len(names):
-        previous_size = len(names)
-        for name in list(names):
-            schema = schemas.get(name)
-            if schema:
-                _collect_refs(schema, names)
-    return {name: schemas[name] for name in sorted(names) if name in schemas}
-
-
-def _collect_refs(value: Any, names: set[str]) -> None:
-    if isinstance(value, dict):
-        ref = value.get("$ref")
-        if isinstance(ref, str) and ref.startswith("#/components/schemas/"):
-            names.add(ref.rsplit("/", 1)[-1])
-        for child in value.values():
-            _collect_refs(child, names)
-    elif isinstance(value, list):
-        for child in value:
-            _collect_refs(child, names)
 
 
 def _render_path(path_template: str, params: Dict[str, Any]) -> str:
