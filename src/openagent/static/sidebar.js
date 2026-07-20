@@ -11,10 +11,13 @@
 		return value;
 	}
 	function frameSrc(baseUrl, config, embedded) {
+		const language = config.language === "zh" ? "zh" : "en";
 		const widgetConfig = {
 			baseUrl,
 			title: config.title || "OpenAgent",
-			description: config.description || "Ask about this service's OpenAPI schema.",
+			welcomeTitle: config.welcomeTitle || null,
+			description: config.description || (language === "zh" ? "询问有关此服务 OpenAPI 接口的问题。" : "Ask about this service's OpenAPI schema."),
+			language,
 			theme: config.theme || "default",
 			mode: embedded ? "embedded" : "floating",
 			requestBridge: typeof config.request === "function",
@@ -288,7 +291,8 @@
 		launcher.type = "button";
 		launcher.className = "foa-loader-launcher";
 		launcher.dataset.theme = config.theme || "default";
-		launcher.innerHTML = "<span class=\"foa-loader-orb\">AI</span><span>API Agent</span>";
+		launcher.innerHTML = `<span class="foa-loader-orb">AI</span><span>${config.language === "zh" ? "API 助手" : "API Agent"}</span>`;
+		launcher.ariaLabel = config.language === "zh" ? "打开 API 助手" : "Open API agent";
 		return launcher;
 	}
 	function createFrame(config, src) {

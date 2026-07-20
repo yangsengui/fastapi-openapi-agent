@@ -13,10 +13,13 @@ export function resolveContainer(value: LoaderConfig["container"]): HTMLElement 
 }
 
 export function frameSrc(baseUrl: string, config: LoaderConfig, embedded: boolean): string {
+  const language = config.language === "zh" ? "zh" : "en";
   const widgetConfig = {
     baseUrl,
     title: config.title || "OpenAgent",
-    description: config.description || "Ask about this service's OpenAPI schema.",
+    welcomeTitle: config.welcomeTitle || null,
+    description: config.description || (language === "zh" ? "询问有关此服务 OpenAPI 接口的问题。" : "Ask about this service's OpenAPI schema."),
+    language,
     theme: config.theme || "default",
     mode: embedded ? "embedded" : "floating",
     requestBridge: typeof config.request === "function",

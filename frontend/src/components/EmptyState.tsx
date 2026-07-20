@@ -1,31 +1,24 @@
-import { Sparkles } from "lucide-react";
-
 import { ui } from "../app/styles";
 import { greeting } from "../lib/utils";
-
-const prompts = [
-  "请调用接口列出所有 items",
-  "搜索创建资源相关接口",
-  "调用健康检查接口",
-  "解释完整调用链条",
-];
+import type { UiCopy } from "../app/i18n";
+import type { Language } from "../types";
 
 type EmptyStateProps = {
   title: string;
+  welcomeTitle: string | null;
   description: string;
+  copy: UiCopy;
+  language: Language;
   onSelectPrompt: (prompt: string) => void;
 };
 
-export function EmptyState({ title, description, onSelectPrompt }: EmptyStateProps) {
+export function EmptyState({ title, welcomeTitle, description, copy, language, onSelectPrompt }: EmptyStateProps) {
   return (
     <section className={ui.hero}>
-      <div className={ui.heroEyebrow}>
-        <Sparkles size={14} strokeWidth={2.4} /> OpenAPI Agent Runtime
-      </div>
-      <h1 className={ui.heroTitle}>{greeting(title)}</h1>
+      <h1 className={ui.heroTitle}>{welcomeTitle || greeting(title, language)}</h1>
       <p className={ui.heroDescription}>{description}</p>
       <div className={ui.prompts}>
-        {prompts.map((prompt) => (
+        {copy.prompts.map((prompt) => (
           <button key={prompt} className={ui.promptButton} type="button" onClick={() => onSelectPrompt(prompt)}>
             {prompt}
           </button>

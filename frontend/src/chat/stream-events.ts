@@ -1,10 +1,11 @@
 import type { Message, MessagePart, StreamEvent, ToolResult } from "../types";
+import type { UiCopy } from "../app/i18n";
 import { uid } from "../lib/utils";
 
 type MessagePatch = (messageId: string, patch: Partial<Message>) => void;
 type MessageLookup = (messageId: string) => Message | undefined;
 
-export function createStreamEventHandler(getMessage: MessageLookup, patchMessage: MessagePatch) {
+export function createStreamEventHandler(getMessage: MessageLookup, patchMessage: MessagePatch, copy: UiCopy) {
   const activeTextPartIds: Record<string, string> = {};
 
   return (event: StreamEvent, assistantId: string): void => {
@@ -24,7 +25,7 @@ export function createStreamEventHandler(getMessage: MessageLookup, patchMessage
       upsertTool(getMessage, patchMessage, assistantId, event.toolCallId || event.toolName || uid("tool"), {
         tool_name: event.toolName,
         input: event.input,
-        preview: event.type === "tool-input-start" ? `Preparing ${event.toolName || "tool"}` : `Calling ${event.toolName || "tool"}`,
+        preview: event.type === "tool-input-start" ? `${copy.preparing} ${event.toolName || copy.tool}` : `${copy.calling} ${event.toolName || copy.tool}`,
       });
       return;
     }
@@ -32,12 +33,12 @@ export function createStreamEventHandler(getMessage: MessageLookup, patchMessage
       upsertTool(getMessage, patchMessage, assistantId, event.toolCallId || event.toolName || uid("tool"), event.output || {
         ok: false,
         tool_name: event.toolName,
-        error: event.errorText || "Tool execution failed",
+        error: event.errorText || copy.toolFailed,
       });
       return;
     }
     if (event.type === "error") {
-      appendTextDelta(getMessage, patchMessage, assistantId, event.errorText || "Stream failed.", activeTextPartIds);
+      appendTextDelta(getMessage, patchMessage, assistantId, event.errorText || copy.streamFailed, activeTextPartIds);
       return;
     }
     if (event.type === "finish" && event.response) {

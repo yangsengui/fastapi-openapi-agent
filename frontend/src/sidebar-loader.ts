@@ -18,7 +18,8 @@ function createLauncher(config: LoaderConfig): HTMLButtonElement {
   launcher.type = "button";
   launcher.className = "foa-loader-launcher";
   launcher.dataset.theme = config.theme || "default";
-  launcher.innerHTML = '<span class="foa-loader-orb">AI</span><span>API Agent</span>';
+  launcher.innerHTML = `<span class="foa-loader-orb">AI</span><span>${config.language === "zh" ? "API 助手" : "API Agent"}</span>`;
+  launcher.ariaLabel = config.language === "zh" ? "打开 API 助手" : "Open API agent";
   return launcher;
 }
 

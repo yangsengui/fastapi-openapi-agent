@@ -8,7 +8,7 @@ export async function streamChat(
   history: ChatHistoryItem[],
   onEvent: (event: StreamEvent) => void,
 ): Promise<void> {
-  const body = JSON.stringify({ message, history });
+  const body = JSON.stringify({ message, history, context: { language: config.language } });
   const request: BridgeRequestInput = {
     url: `${config.baseUrl}/chat/stream`,
     method: "POST",
@@ -33,7 +33,7 @@ export async function streamChat(
 }
 
 export async function jsonChat(config: WidgetConfig, message: string, history: ChatHistoryItem[]): Promise<ChatResponse> {
-  const body = JSON.stringify({ message, history });
+  const body = JSON.stringify({ message, history, context: { language: config.language } });
   const request: BridgeRequestInput = {
     url: `${config.baseUrl}/chat`,
     method: "POST",

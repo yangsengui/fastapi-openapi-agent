@@ -2,6 +2,7 @@ import { ChevronDown, ChevronRight } from "lucide-react";
 import type { RefObject } from "react";
 
 import { ui } from "../app/styles";
+import type { UiCopy } from "../app/i18n";
 import type { Message, MessagePart, Role, ToolResult } from "../types";
 import { renderMarkdown } from "../lib/markdown";
 import { cn, safeJson } from "../lib/utils";
@@ -9,17 +10,18 @@ import { cn, safeJson } from "../lib/utils";
 type MessageListProps = {
   messages: Message[];
   scrollRef: RefObject<HTMLDivElement | null>;
+  copy: UiCopy;
 };
 
-export function MessageList({ messages, scrollRef }: MessageListProps) {
+export function MessageList({ messages, scrollRef, copy }: MessageListProps) {
   return (
     <section ref={scrollRef} className={ui.messages}>
-      {messages.map((message) => <MessageBubble key={message.id} message={message} />)}
+      {messages.map((message) => <MessageBubble key={message.id} message={message} copy={copy} />)}
     </section>
   );
 }
 
-function MessageBubble({ message }: { message: Message }) {
+function MessageBubble({ message, copy }: { message: Message; copy: UiCopy }) {
   if (message.parts?.length) {
     return (
       <article className={messageClass(message.role)}>
@@ -29,11 +31,11 @@ function MessageBubble({ message }: { message: Message }) {
               <div
                 key={part.id}
                 className={messageContentClass(message.role)}
-                dangerouslySetInnerHTML={{ __html: renderMarkdown(part.content || (message.role === "assistant" ? "Thinking..." : "")) }}
+                dangerouslySetInnerHTML={{ __html: renderMarkdown(part.content || (message.role === "assistant" ? copy.thinking : "")) }}
               />
             );
           }
-          return isVisibleTool(part.toolName || part.result?.tool_name) ? <ToolPartCard key={part.id} part={part} /> : null;
+          return isVisibleTool(part.toolName || part.result?.tool_name) ? <ToolPartCard key={part.id} part={part} copy={copy} /> : null;
         })}
       </article>
     );
@@ -43,21 +45,21 @@ function MessageBubble({ message }: { message: Message }) {
     <article className={messageClass(message.role)}>
       <div
         className={messageContentClass(message.role)}
-        dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content || (message.role === "assistant" ? "Thinking..." : "")) }}
+        dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content || (message.role === "assistant" ? copy.thinking : "")) }}
       />
-      {message.tool_results?.length ? <ToolTimeline results={message.tool_results} /> : null}
+      {message.tool_results?.length ? <ToolTimeline results={message.tool_results} copy={copy} /> : null}
     </article>
   );
 }
 
-function ToolPartCard({ part }: { part: Extract<MessagePart, { type: "tool" }> }) {
+function ToolPartCard({ part, copy }: { part: Extract<MessagePart, { type: "tool" }>; copy: UiCopy }) {
   const result = part.result;
-  const title = result?.preview || `${part.status === "running" ? "Calling" : "Called"} ${part.toolName || result?.tool_name || "tool"}${result?.path ? ` ${result.path}` : ""}`;
+  const title = result?.preview || `${part.status === "running" ? copy.calling : copy.called} ${part.toolName || result?.tool_name || copy.tool}${result?.path ? ` ${result.path}` : ""}`;
   const body = result ? (result.error ? { error: result.error, data: result.data } : result.data ?? result.input) : { input: part.input };
   return <ToolDetails title={title} body={body} inline />;
 }
 
-function ToolTimeline({ results }: { results: ToolResult[] }) {
+function ToolTimeline({ results, copy }: { results: ToolResult[]; copy: UiCopy }) {
   const visibleResults = results.filter((result) => isVisibleTool(result.tool_name));
   if (!visibleResults.length) return null;
   return (
@@ -65,7 +67,7 @@ function ToolTimeline({ results }: { results: ToolResult[] }) {
       {visibleResults.map((result, index) => (
         <ToolDetails
           key={`${result.tool_name}-${index}`}
-          title={result.preview || `${result.tool_name || "tool"}${result.path ? ` ${result.path}` : ""}`}
+          title={result.preview || `${result.tool_name || copy.tool}${result.path ? ` ${result.path}` : ""}`}
           body={result.error ? { error: result.error, data: result.data } : result.data ?? result.input}
         />
       ))}

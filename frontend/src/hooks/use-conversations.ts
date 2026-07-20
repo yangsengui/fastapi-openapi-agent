@@ -1,11 +1,11 @@
 import { useRef, useState } from "react";
 
-import type { ChatHistoryItem, Conversation, Message } from "../types";
+import type { ChatHistoryItem, Conversation, Language, Message } from "../types";
 import { titleFromPrompt, uid } from "../lib/utils";
 
 const conversationLimit = 30;
 
-export function useConversations(storageKey: string) {
+export function useConversations(storageKey: string, language: Language = "en") {
   const initial = useRef<Conversation[] | null>(null);
   if (initial.current === null) initial.current = loadConversations(storageKey);
 
@@ -27,7 +27,7 @@ export function useConversations(storageKey: string) {
     const now = Date.now();
     update((items) => [{
       id,
-      title: titleFromPrompt(firstMessage || "New chat"),
+      title: titleFromPrompt(firstMessage, language),
       createdAt: now,
       updatedAt: now,
       messages: [],
@@ -40,7 +40,7 @@ export function useConversations(storageKey: string) {
     update((items) => items.map((item) => item.id === conversationId ? {
       ...item,
       updatedAt: Date.now(),
-      title: item.title === "New chat" && message.role === "user" ? titleFromPrompt(message.content) : item.title,
+      title: ["New chat", "新对话"].includes(item.title) && message.role === "user" ? titleFromPrompt(message.content, language) : item.title,
       messages: [...item.messages, message],
     } : item));
   };

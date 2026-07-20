@@ -10,9 +10,19 @@ router = install_openapi_agent(app, config=None, **overrides)
 
 把 Agent router 加到现有 FastAPI app，并返回该 `APIRouter`。可传入 `OpenAPIAgentConfig`，也可使用关键字覆盖配置。
 
+Django Ninja 使用独立的框架适配模块：
+
+```python
+from openagent.django_ninja import install_openapi_agent
+
+router = install_openapi_agent(api, config=None, **overrides)
+```
+
+该函数会把 Ninja `Router` 添加到已有 `NinjaAPI`。按正常方式在 Django 中挂载 `api.urls` 即可；adapter 会自动把 Django URL 前缀加入组件地址和 OpenAPI 操作路径。
+
 ## `OpenAPIAgentConfig`
 
-配置项及默认值以 [`src/openagent/fastapi.py`](https://github.com/yangsengui/fastapi-openapi-agent/blob/main/src/openagent/fastapi.py) 为准。常用项见[配置与模型](../guides/configuration.md)。
+FastAPI 配置项及默认值以 [`src/openagent/fastapi.py`](https://github.com/yangsengui/fastapi-openapi-agent/blob/main/src/openagent/fastapi.py) 为准。Django Ninja 使用 `openagent.django_ninja` 中对应的配置，并额外提供 `openapi_path_prefix` 和 `asgi_app`。常用项见[配置与模型](../guides/configuration.md)。
 
 ## `OperationCatalog`
 

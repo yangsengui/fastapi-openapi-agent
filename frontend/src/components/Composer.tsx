@@ -3,16 +3,18 @@ import { useEffect } from "react";
 import type { FormEvent, RefObject } from "react";
 
 import { ui } from "../app/styles";
+import type { UiCopy } from "../app/i18n";
 
 type ComposerProps = {
   draft: string;
   busy: boolean;
+  copy: UiCopy;
   textareaRef: RefObject<HTMLTextAreaElement | null>;
   onDraftChange: (value: string) => void;
   onSubmit: (event?: FormEvent) => void;
 };
 
-export function Composer({ draft, busy, textareaRef, onDraftChange, onSubmit }: ComposerProps) {
+export function Composer({ draft, busy, copy, textareaRef, onDraftChange, onSubmit }: ComposerProps) {
   useEffect(() => {
     const element = textareaRef.current;
     if (!element) return;
@@ -28,8 +30,8 @@ export function Composer({ draft, busy, textareaRef, onDraftChange, onSubmit }: 
           className={ui.textarea}
           value={draft}
           rows={1}
-          placeholder="Ask about the API, or ask the agent to call an endpoint..."
-          aria-label="Message"
+          placeholder={copy.composerPlaceholder}
+          aria-label={copy.message}
           onChange={(event) => onDraftChange(event.target.value)}
           onKeyDown={(event) => {
             if (event.key === "Enter" && !event.shiftKey && !event.nativeEvent.isComposing) {
@@ -38,7 +40,7 @@ export function Composer({ draft, busy, textareaRef, onDraftChange, onSubmit }: 
             }
           }}
         />
-        <button className={ui.sendButton} type="submit" disabled={busy || !draft.trim()} aria-label={busy ? "Sending" : "Send message"}>
+        <button className={ui.sendButton} type="submit" disabled={busy || !draft.trim()} aria-label={busy ? copy.sending : copy.sendMessage}>
           {busy ? <LoaderCircle className="animate-spin" size={18} strokeWidth={2.4} /> : <SendHorizontal size={18} strokeWidth={2.4} />}
         </button>
       </div>

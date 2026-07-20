@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 
 import { jsonChat, streamChat } from "../chat/client";
@@ -12,18 +12,24 @@ import { useConversations } from "../hooks/use-conversations";
 import type { MessagePart, ToolResult } from "../types";
 import { uid, cn } from "../lib/utils";
 import { readConfig } from "./config";
+import { getCopy } from "./i18n";
 import { ui } from "./styles";
 import { themeStyle } from "./theme";
 
 export function AgentApp() {
   const [config] = useState(readConfig);
-  const store = useConversations(`foa:spa:conversations:${config.baseUrl}`);
+  const copy = getCopy(config.language);
+  const store = useConversations(`foa:spa:conversations:${config.baseUrl}:${config.language}`, config.language);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const textareaRef = useRef<HTMLTextAreaElement | null>(null);
   const messages = store.active?.messages || [];
+
+  useEffect(() => {
+    document.documentElement.lang = config.language;
+  }, [config.language]);
 
   const scrollToBottom = () => {
     const element = scrollRef.current;
@@ -45,6 +51,7 @@ export function AgentApp() {
     const handleStreamEvent = createStreamEventHandler(
       (messageId) => store.getMessage(conversationId, messageId),
       patchAssistant,
+      copy,
     );
 
     setDraft("");
@@ -57,7 +64,7 @@ export function AgentApp() {
       await streamChat(config, text, history, (streamEvent) => handleStreamEvent(streamEvent, assistantId));
     } catch {
       const data = await jsonChat(config, text, history);
-      const answer = data.answer || "No answer returned.";
+      const answer = data.answer || copy.noAnswer;
       patchAssistant(assistantId, {
         content: answer,
         parts: [
@@ -96,6 +103,7 @@ export function AgentApp() {
     >
       <AgentHeader
         title={config.title}
+        copy={copy}
         canClose={config.mode === "floating" || window.parent !== window}
         onToggleHistory={() => setDrawerOpen((open) => !open)}
         onNewChat={startNew}
@@ -105,6 +113,8 @@ export function AgentApp() {
         conversations={store.conversations}
         activeId={store.activeId}
         open={drawerOpen}
+        copy={copy}
+        language={config.language}
         onClose={() => setDrawerOpen(false)}
         onSelect={(conversationId) => {
           store.setActiveId(conversationId);
@@ -114,15 +124,23 @@ export function AgentApp() {
 
       <main className={ui.main}>
         {messages.length === 0 ? (
-          <EmptyState title={config.title} description={config.description} onSelectPrompt={selectPrompt} />
+          <EmptyState
+            title={config.title}
+            welcomeTitle={config.welcomeTitle}
+            description={config.description}
+            copy={copy}
+            language={config.language}
+            onSelectPrompt={selectPrompt}
+          />
         ) : (
-          <MessageList messages={messages} scrollRef={scrollRef} />
+          <MessageList messages={messages} scrollRef={scrollRef} copy={copy} />
         )}
       </main>
 
       <Composer
         draft={draft}
         busy={busy}
+        copy={copy}
         textareaRef={textareaRef}
         onDraftChange={setDraft}
         onSubmit={(event) => void submit(event)}

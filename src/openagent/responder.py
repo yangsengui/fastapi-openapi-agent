@@ -5,6 +5,8 @@ from typing import Any, Dict, Iterable, List, Literal, Optional, Set
 
 from pydantic import BaseModel, Field
 
+from .i18n import Language, translate, validate_language
+
 
 class AgentMessage(BaseModel):
     role: Literal["user", "assistant", "system"]
@@ -85,7 +87,11 @@ STOP_WORDS = {
 }
 
 
-def default_openapi_responder(request: AgentRequest, openapi: Dict[str, Any]) -> AgentResponse:
+def default_openapi_responder(
+    request: AgentRequest,
+    openapi: Dict[str, Any],
+    language: Language = "en",
+) -> AgentResponse:
     """Small deterministic OpenAPI responder used when no LLM backend is wired.
 
     It ranks operations by token overlap, then formats a concise answer. This is
@@ -93,16 +99,18 @@ def default_openapi_responder(request: AgentRequest, openapi: Dict[str, Any]) ->
     contract to replace later.
     """
 
+    language = validate_language(language)
+
     operations = list(_iter_operations(openapi))
     if not operations:
-        return AgentResponse(answer="I could not find any operations in the OpenAPI schema.")
+        return AgentResponse(answer=translate(language, "no_operations"))
 
     message = request.message.strip()
     hits = _rank_operations(message, operations)
     if not hits:
         hits = operations[:8]
 
-    answer = _format_answer(openapi, message, hits)
+    answer = _format_answer(openapi, message, hits, language)
     return AgentResponse(
         answer=answer,
         operations=hits,
@@ -184,19 +192,24 @@ def _tokens(value: str) -> Set[str]:
     return {token for token in raw if len(token) > 1 and token not in STOP_WORDS}
 
 
-def _format_answer(openapi: Dict[str, Any], message: str, hits: List[OperationHit]) -> str:
-    title = (openapi.get("info") or {}).get("title") or "this API"
-    lines = [f"Based on {title}'s OpenAPI schema, these endpoints look most relevant to: {message}"]
+def _format_answer(
+    openapi: Dict[str, Any],
+    message: str,
+    hits: List[OperationHit],
+    language: Language,
+) -> str:
+    title = (openapi.get("info") or {}).get("title") or translate(language, "this_api")
+    lines = [translate(language, "answer_intro", title=title, message=message)]
     for hit in hits:
-        label = hit.summary or hit.operation_id or "No summary"
+        label = hit.summary or hit.operation_id or translate(language, "no_summary")
         details = []
         if hit.parameters:
-            details.append("params: " + ", ".join(hit.parameters))
+            details.append(translate(language, "params", value=", ".join(hit.parameters)))
         if hit.request_body:
-            details.append("request body")
+            details.append(translate(language, "request_body"))
         if hit.responses:
-            details.append("responses: " + ", ".join(hit.responses[:5]))
+            details.append(translate(language, "responses", value=", ".join(hit.responses[:5])))
         suffix = f" ({'; '.join(details)})" if details else ""
         lines.append(f"- {hit.method} {hit.path}: {label}{suffix}")
-    lines.append("For production use, pass a custom responder that calls your LLM and uses the same OpenAPI schema as tool context.")
+    lines.append(translate(language, "production_hint"))
     return "\n".join(lines)

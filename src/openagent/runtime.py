@@ -6,6 +6,7 @@ from typing import Any, Dict, Mapping, Optional, Protocol
 from urllib.parse import quote
 
 from .catalog import OperationCatalog, OperationContract
+from .i18n import Language, translate, validate_language
 
 
 class OperationInvoker(Protocol):
@@ -38,6 +39,7 @@ class OpenAPIAgentRuntime:
         enable_api_calls: bool = True,
         allow_mutating_api_calls: bool = False,
         forwarded_headers: Optional[Mapping[str, str]] = None,
+        language: Language = "en",
     ) -> None:
         self.openapi = openapi
         self.invoker = invoker
@@ -45,6 +47,7 @@ class OpenAPIAgentRuntime:
         self.enable_api_calls = enable_api_calls
         self.allow_mutating_api_calls = allow_mutating_api_calls
         self.forwarded_headers = dict(forwarded_headers or {})
+        self.language = validate_language(language)
         self.catalog = OperationCatalog.from_openapi(openapi)
         self._loaded_operations: set[tuple[str, str]] = set()
 
@@ -55,7 +58,7 @@ class OpenAPIAgentRuntime:
             return self.operation_get(args)
         if name == "operation_request":
             return await self.operation_request(args)
-        return _failure(name, args, f"Unknown tool: {name}")
+        return _failure(name, args, translate(self.language, "unknown_tool", name=name))
 
     def operation_search(self, args: Dict[str, Any]) -> Dict[str, Any]:
         query = _search_text(args)
@@ -73,13 +76,13 @@ class OpenAPIAgentRuntime:
             "tool_name": "operation_search",
             "input": args,
             "data": {"operations": [_dump_model(hit) for hit in hits]},
-            "preview": f"Found {len(hits)} operation(s).",
+            "preview": translate(self.language, "found_operations", count=len(hits)),
         }
 
     def operation_get(self, args: Dict[str, Any]) -> Dict[str, Any]:
         record = self._find_operation(args)
         if not record:
-            return _failure("operation_get", args, "Operation not found.")
+            return _failure("operation_get", args, translate(self.language, "operation_not_found"))
         method = record.metadata.method
         path = record.metadata.path
         self._loaded_operations.add((method, path))
@@ -96,30 +99,30 @@ class OpenAPIAgentRuntime:
             "path": path,
             "input": args,
             "data": data,
-            "preview": f"Loaded contract for {method} {path}.",
+            "preview": translate(self.language, "loaded_contract", method=method, path=path),
         }
 
     async def operation_request(self, args: Dict[str, Any]) -> Dict[str, Any]:
         if not self.enable_api_calls:
-            return _failure("operation_request", args, "API calls are disabled for this agent.")
+            return _failure("operation_request", args, translate(self.language, "api_calls_disabled"))
         if self.invoker is None:
-            return _failure("operation_request", args, "API calls require an operation invoker.")
+            return _failure("operation_request", args, translate(self.language, "invoker_required"))
 
         record = self._find_operation(args)
         if not record:
-            return _failure("operation_request", args, "Operation not found.")
+            return _failure("operation_request", args, translate(self.language, "operation_not_found"))
         method = record.metadata.method
         path_template = record.metadata.path
         if (method, path_template) not in self._loaded_operations:
             return _failure(
                 "operation_request",
                 args,
-                "Operation contract must be loaded with operation_get before execution.",
+                translate(self.language, "contract_required"),
                 method=method,
                 path=path_template,
             )
         if path_template.startswith(self.agent_path + "/") or path_template == self.agent_path:
-            return _failure("operation_request", args, "Agent internal routes cannot be called.")
+            return _failure("operation_request", args, translate(self.language, "internal_route"))
 
         risk = record.risk
         if risk != "read_only" and not self.allow_mutating_api_calls:
@@ -130,8 +133,10 @@ class OpenAPIAgentRuntime:
                 "path": path_template,
                 "input": args,
                 "data": {"requires_approval": True, "risk": risk},
-                "preview": f"Blocked {method} {path_template}: mutating API calls are disabled.",
-                "error": "Mutating API calls require allow_mutating_api_calls=True.",
+                "preview": translate(
+                    self.language, "blocked_mutation", method=method, path=path_template
+                ),
+                "error": translate(self.language, "mutation_requires_flag"),
             }
 
         path_params = _dict(args.get("pathParams") or args.get("path_params"))
@@ -142,7 +147,13 @@ class OpenAPIAgentRuntime:
         try:
             path = _render_path(path_template, path_params)
         except ValueError as exc:
-            return _failure("operation_request", args, str(exc), method=method, path=path_template)
+            return _failure(
+                "operation_request",
+                args,
+                translate(self.language, "missing_path_param", name=str(exc)),
+                method=method,
+                path=path_template,
+            )
 
         try:
             response = await self.invoker.request(
@@ -156,7 +167,11 @@ class OpenAPIAgentRuntime:
             return _failure(
                 "operation_request",
                 args,
-                f"Internal API request failed: {exc.__class__.__name__}.",
+                translate(
+                    self.language,
+                    "internal_request_failed",
+                    error_type=exc.__class__.__name__,
+                ),
                 method=method,
                 path=path_template,
             )
@@ -223,7 +238,7 @@ def _render_path(path_template: str, params: Dict[str, Any]) -> str:
     def replace(match: re.Match[str]) -> str:
         key = match.group(1)
         if key not in params or params[key] is None:
-            raise ValueError(f"Missing required path parameter: {key}")
+            raise ValueError(key)
         return quote(str(params[key]), safe="")
 
     return re.sub(r"\{([^{}]+)\}", replace, path_template)

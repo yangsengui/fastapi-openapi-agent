@@ -6,6 +6,7 @@ import secrets
 from typing import Any, AsyncIterator, Awaitable, Callable, Dict, Optional
 
 from .catalog import OperationCatalog, OperationMetadata
+from .i18n import Language, translate, validate_language
 from .responder import (
     AgentRequest,
     AgentResponse,
@@ -29,6 +30,7 @@ async def stream_llm_agent(
     tool_runner: ToolRunner,
     model: Optional[str] = None,
     *,
+    language: Language = "en",
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     temperature: Optional[float] = None,
@@ -40,14 +42,18 @@ async def stream_llm_agent(
 ) -> AsyncIterator[Dict[str, Any]]:
     """Stream a LiteLLM-backed tool-calling run as UI-friendly events."""
 
+    language = validate_language(language)
+
     try:
-        resolved_model = _resolve_model(model)
+        resolved_model = _resolve_model(model, language)
     except RuntimeError as exc:
         yield {"type": "error", "errorText": str(exc)}
         return
 
-    grounding = default_openapi_responder(request, openapi)
-    messages: list[dict[str, Any]] = _build_messages(request, openapi, max_context_chars)
+    grounding = default_openapi_responder(request, openapi, language)
+    messages: list[dict[str, Any]] = _build_messages(
+        request, openapi, max_context_chars, language
+    )
     tool_results: list[Dict[str, Any]] = []
     final_text_parts: list[str] = []
     active_text_id: Optional[str] = None
@@ -111,7 +117,7 @@ async def stream_llm_agent(
             if active_text_id is not None:
                 yield {"type": "text-end", "id": active_text_id}
                 active_text_id = None
-            yield {"type": "error", "errorText": _request_error(exc)}
+            yield {"type": "error", "errorText": _request_error(exc, language)}
             return
 
         tool_calls = [tool_call_state[index] for index in sorted(tool_call_state)]
@@ -120,7 +126,9 @@ async def stream_llm_agent(
                 yield {"type": "text-end", "id": active_text_id}
             yield {
                 "type": "finish",
-                "response": _agent_response_payload(grounding, "".join(final_text_parts), tool_results),
+                "response": _agent_response_payload(
+                    grounding, "".join(final_text_parts), tool_results, language
+                ),
             }
             return
 
@@ -154,7 +162,9 @@ async def stream_llm_agent(
             try:
                 result = await tool_runner(name, args)
             except Exception as exc:
-                error_text = f"Tool execution failed: {exc.__class__.__name__}."
+                error_text = translate(
+                    language, "tool_failed", error_type=exc.__class__.__name__
+                )
                 yield {
                     "type": "tool-output-error",
                     "toolCallId": tool_call_id,
@@ -172,7 +182,9 @@ async def stream_llm_agent(
                     "toolName": name,
                     "output": result,
                     "errorText": str(
-                        result.get("error") or result.get("preview") or "Tool execution failed"
+                        result.get("error")
+                        or result.get("preview")
+                        or translate(language, "tool_failed_generic")
                     ),
                 }
             else:
@@ -193,13 +205,14 @@ async def stream_llm_agent(
 
     yield {
         "type": "error",
-        "errorText": "The agent reached the maximum tool-calling rounds before producing a final answer.",
+        "errorText": translate(language, "max_rounds"),
     }
 
 
 def create_llm_responder(
     model: Optional[str] = None,
     *,
+    language: Language = "en",
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     temperature: Optional[float] = None,
@@ -212,18 +225,20 @@ def create_llm_responder(
 ) -> Responder:
     """Create a provider-neutral responder backed by LiteLLM."""
 
-    resolved_model = _resolve_model(model)
+    language = validate_language(language)
+    resolved_model = _resolve_model(model, language)
     run_completion = completion or _litellm_completion
 
     async def responder(request: AgentRequest, openapi: Dict[str, Any]) -> AgentResponse:
-        grounding = default_openapi_responder(request, openapi)
-        messages = _build_messages(request, openapi, max_context_chars)
+        grounding = default_openapi_responder(request, openapi, language)
+        messages = _build_messages(request, openapi, max_context_chars, language)
         tool_results: list[Dict[str, Any]] = []
         resolved_tool_runner = tool_runner
         if resolved_tool_runner is None:
             resolved_tool_runner = OpenAPIAgentRuntime(
                 openapi,
                 enable_api_calls=False,
+                language=language,
             ).run_tool
 
         try:
@@ -240,11 +255,11 @@ def create_llm_responder(
                         model_kwargs=model_kwargs,
                     )
                 )
-                message = _extract_message(_response_dict(response))
+                message = _extract_message(_response_dict(response), language)
                 tool_calls = message.get("tool_calls") or []
                 if not tool_calls:
                     return AgentResponse(
-                        answer=_message_content(message),
+                        answer=_message_content(message, language),
                         operations=grounding.operations,
                         sources=grounding.sources,
                         tool_results=[_tool_result_model(item) for item in tool_results],
@@ -268,13 +283,13 @@ def create_llm_responder(
                     )
 
             return AgentResponse(
-                answer="The agent reached the maximum tool-calling rounds before producing a final answer.",
+                answer=translate(language, "max_rounds"),
                 operations=grounding.operations,
                 sources=grounding.sources,
                 tool_results=[_tool_result_model(item) for item in tool_results],
             )
         except Exception as exc:
-            return _fallback_response(grounding, _request_error(exc))
+            return _fallback_response(grounding, _request_error(exc, language), language)
 
     return responder
 
@@ -289,10 +304,10 @@ async def _litellm_completion(**kwargs: Any) -> Any:
     return await acompletion(**kwargs)
 
 
-def _resolve_model(model: Optional[str]) -> str:
+def _resolve_model(model: Optional[str], language: Language = "en") -> str:
     resolved = model or os.getenv("OPENAGENT_MODEL")
     if not resolved:
-        raise RuntimeError("OPENAGENT_MODEL is not set and no model was configured.")
+        raise RuntimeError(translate(language, "llm_not_configured"))
     if "/" not in resolved:
         resolved = f"deepseek/{resolved}"
     return resolved
@@ -345,20 +360,23 @@ def _response_dict(value: Any) -> Dict[str, Any]:
     return result
 
 
-def _request_error(exc: Exception) -> str:
+def _request_error(exc: Exception, language: Language = "en") -> str:
     if isinstance(exc, LiteLLMNotInstalledError):
-        return str(exc)
+        return translate(language, "litellm_missing")
     status_code = getattr(exc, "status_code", None)
     if status_code:
-        return f"LLM request failed with HTTP {status_code}."
-    return f"LLM request failed: {exc.__class__.__name__}."
+        return translate(language, "llm_http_error", status=status_code)
+    return translate(language, "llm_error", error_type=exc.__class__.__name__)
 
 
 def _agent_response_payload(
-    grounding: AgentResponse, answer: str, tool_results: list[Dict[str, Any]]
+    grounding: AgentResponse,
+    answer: str,
+    tool_results: list[Dict[str, Any]],
+    language: Language = "en",
 ) -> Dict[str, Any]:
     response = AgentResponse(
-        answer=answer or "The model returned an empty answer.",
+        answer=answer or translate(language, "empty_answer"),
         operations=grounding.operations,
         sources=grounding.sources,
         tool_results=[_tool_result_model(item) for item in tool_results],
@@ -376,6 +394,7 @@ def _build_messages(
     request: AgentRequest,
     openapi: Dict[str, Any],
     max_context_chars: int,
+    language: Language = "en",
 ) -> list[dict[str, str]]:
     operations = [
         _dump_operation_metadata(operation)
@@ -388,7 +407,8 @@ def _build_messages(
             "role": "system",
             "content": (
                 "You are an API assistant embedded in an OpenAPI-powered application. "
-                "Answer in the same language as the user's latest question. "
+                f"Always answer in {'English' if language == 'en' else 'Simplified Chinese'}, "
+                "regardless of the language used in the question or API schema. "
                 "The provided OpenAPI context contains operation metadata and intentionally contains no schemas. "
                 "catalogComplete says whether every operation fit in the context; use operation_search when it is false. "
                 "Ground operation selection only in this context and tool results. "
@@ -504,16 +524,18 @@ def _compact_json(value: Any) -> str:
     return json.dumps(value, ensure_ascii=False, separators=(",", ":"))
 
 
-def _extract_message(payload: Dict[str, Any]) -> Dict[str, Any]:
+def _extract_message(
+    payload: Dict[str, Any], language: Language = "en"
+) -> Dict[str, Any]:
     choices = payload.get("choices") or []
     if not choices:
-        return {"content": "The model returned no answer."}
+        return {"content": translate(language, "no_answer")}
     return choices[0].get("message") or {}
 
 
-def _message_content(message: Dict[str, Any]) -> str:
+def _message_content(message: Dict[str, Any], language: Language = "en") -> str:
     content = message.get("content") or ""
-    return str(content).strip() or "The model returned an empty answer."
+    return str(content).strip() or translate(language, "empty_answer")
 
 
 def _assistant_tool_message(message: Dict[str, Any]) -> Dict[str, Any]:
@@ -634,9 +656,11 @@ def _tool_definitions() -> list[Dict[str, Any]]:
     ]
 
 
-def _fallback_response(grounding: AgentResponse, prefix: str) -> AgentResponse:
+def _fallback_response(
+    grounding: AgentResponse, prefix: str, language: Language = "en"
+) -> AgentResponse:
     return AgentResponse(
-        answer=f"{prefix}\n\nFallback OpenAPI result:\n{grounding.answer}",
+        answer=f"{prefix}\n\n{translate(language, 'fallback_heading')}\n{grounding.answer}",
         operations=grounding.operations,
         sources=grounding.sources,
     )

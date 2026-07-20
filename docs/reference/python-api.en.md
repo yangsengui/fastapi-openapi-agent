@@ -10,9 +10,19 @@ router = install_openapi_agent(app, config=None, **overrides)
 
 Mounts the Agent router on an existing FastAPI application and returns the `APIRouter`. Pass an `OpenAPIAgentConfig` object or use keyword overrides.
 
+For Django Ninja, import the adapter from its framework module:
+
+```python
+from openagent.django_ninja import install_openapi_agent
+
+router = install_openapi_agent(api, config=None, **overrides)
+```
+
+This attaches a Ninja `Router` to the existing `NinjaAPI`. Mount `api.urls` in Django normally; the adapter includes the Django URL prefix in widget and OpenAPI operation paths automatically.
+
 ## `OpenAPIAgentConfig`
 
-The canonical options and defaults live in [`src/openagent/fastapi.py`](https://github.com/yangsengui/fastapi-openapi-agent/blob/main/src/openagent/fastapi.py). See [Configuration and models](../guides/configuration.md) for the commonly used settings.
+The canonical FastAPI options and defaults live in [`src/openagent/fastapi.py`](https://github.com/yangsengui/fastapi-openapi-agent/blob/main/src/openagent/fastapi.py). Django Ninja uses the equivalent config from `openagent.django_ninja`, with additional `openapi_path_prefix` and `asgi_app` options. See [Configuration and models](../guides/configuration.md) for the commonly used settings.
 
 ## `OperationCatalog`
 

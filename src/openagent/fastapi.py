@@ -14,6 +14,7 @@ from fastapi import APIRouter, FastAPI, HTTPException, Request
 from fastapi.responses import HTMLResponse, JSONResponse, Response, StreamingResponse
 
 from .events import event_payload
+from .i18n import DEFAULT_DESCRIPTIONS, Language, validate_language
 from .responder import AgentRequest, AgentResponse, default_openapi_responder
 from .runtime import OpenAPIAgentRuntime as CoreOpenAPIAgentRuntime
 from .sdk import OpenAPIAgent
@@ -46,6 +47,8 @@ class OpenAPIAgentConfig:
     llm_api_key: Optional[str] = None
     llm_base_url: Optional[str] = None
     llm_model_kwargs: Optional[Dict[str, Any]] = None
+    welcome_title: Optional[str] = None
+    language: Language = "en"
 
 
 class FastAPIOperationInvoker:
@@ -92,6 +95,7 @@ class OpenAPIAgentRuntime(CoreOpenAPIAgentRuntime):
         allow_mutating_api_calls: bool = False,
         request: Optional[Request] = None,
         forward_headers: Sequence[str] = ("authorization", "cookie"),
+        language: Language = "en",
     ) -> None:
         self.app = app
         self.request = request
@@ -102,6 +106,7 @@ class OpenAPIAgentRuntime(CoreOpenAPIAgentRuntime):
             enable_api_calls=enable_api_calls,
             allow_mutating_api_calls=allow_mutating_api_calls,
             forwarded_headers=_forwarded_request_headers(request, forward_headers),
+            language=language,
         )
 
 
@@ -111,6 +116,7 @@ def install_openapi_agent(
     """Attach OpenAgent routes to an existing FastAPI application."""
 
     resolved = _resolve_config(config, overrides)
+    resolved.language = validate_language(resolved.language)
     if resolved.agent is not None and resolved.responder is not None:
         raise ValueError("Configure either agent or responder, not both.")
     base_path = _normalize_path(resolved.path)
@@ -118,8 +124,8 @@ def install_openapi_agent(
     router = APIRouter(prefix=base_path, include_in_schema=resolved.include_in_schema)
 
     @router.get("/", response_class=HTMLResponse)
-    async def agent_page(_: Request) -> HTMLResponse:
-        return HTMLResponse(_render_agent_page(resolved, base_path))
+    async def agent_page(request: Request) -> HTMLResponse:
+        return HTMLResponse(_render_agent_page(resolved, base_path, request))
 
     @router.get("/sidebar.js")
     async def sidebar_script() -> Response:
@@ -150,7 +156,9 @@ def install_openapi_agent(
     async def agent_config() -> Dict[str, Any]:
         return {
             "title": resolved.title,
-            "description": resolved.description,
+            "welcomeTitle": resolved.welcome_title,
+            "description": _resolved_description(resolved),
+            "language": resolved.language,
             "basePath": base_path,
             "openapiPath": f"{base_path}/openapi" if resolved.expose_openapi else None,
             "enableApiCalls": resolved.enable_api_calls,
@@ -166,6 +174,7 @@ def install_openapi_agent(
     @router.post("/chat", response_model=AgentResponse)
     async def chat(payload: AgentRequest, request: Request) -> AgentResponse:
         openapi = app.openapi()
+        language = _request_language(payload, resolved.language)
         runtime = OpenAPIAgentRuntime(
             app,
             openapi,
@@ -174,10 +183,11 @@ def install_openapi_agent(
             allow_mutating_api_calls=resolved.allow_mutating_api_calls,
             request=request,
             forward_headers=resolved.forward_headers,
+            language=language,
         )
         if resolved.agent is not None:
             return await resolved.agent.respond(payload, openapi, runtime)
-        responder = _resolve_responder(resolved, runtime)
+        responder = _resolve_responder(resolved, runtime, language)
         result = responder(payload, openapi)
         if inspect.isawaitable(result):
             result = await result
@@ -186,6 +196,7 @@ def install_openapi_agent(
     @router.post("/chat/stream")
     async def chat_stream(payload: AgentRequest, request: Request) -> StreamingResponse:
         openapi = app.openapi()
+        language = _request_language(payload, resolved.language)
         runtime = OpenAPIAgentRuntime(
             app,
             openapi,
@@ -194,6 +205,7 @@ def install_openapi_agent(
             allow_mutating_api_calls=resolved.allow_mutating_api_calls,
             request=request,
             forward_headers=resolved.forward_headers,
+            language=language,
         )
 
         async def events():
@@ -215,12 +227,13 @@ def install_openapi_agent(
                     api_key=resolved.llm_api_key,
                     base_url=resolved.llm_base_url,
                     model_kwargs=resolved.llm_model_kwargs,
+                    language=language,
                 ):
                     yield _sse(event)
                 yield "data: [DONE]\n\n"
                 return
 
-            responder = _resolve_responder(resolved, runtime)
+            responder = _resolve_responder(resolved, runtime, language)
             result = responder(payload, openapi)
             if inspect.isawaitable(result):
                 result = await result
@@ -263,7 +276,9 @@ def _normalize_path(path: str) -> str:
 
 
 def _resolve_responder(
-    config: OpenAPIAgentConfig, runtime: OpenAPIAgentRuntime
+    config: OpenAPIAgentConfig,
+    runtime: OpenAPIAgentRuntime,
+    language: Language,
 ) -> Responder:
     if config.responder is not None:
         return config.responder
@@ -277,8 +292,22 @@ def _resolve_responder(
             base_url=config.llm_base_url,
             model_kwargs=config.llm_model_kwargs,
             tool_runner=runtime.run_tool,
+            language=language,
         )
-    return default_openapi_responder
+    return lambda request, openapi: default_openapi_responder(request, openapi, language)
+
+
+def _request_language(request: AgentRequest, default: Language) -> Language:
+    requested = request.context.get("language")
+    if requested in {"en", "zh"}:
+        return requested
+    return default
+
+
+def _resolved_description(config: OpenAPIAgentConfig) -> str:
+    if config.description == DEFAULT_DESCRIPTIONS["en"]:
+        return DEFAULT_DESCRIPTIONS[config.language]
+    return config.description
 
 
 def _resolve_llm_model(config: OpenAPIAgentConfig) -> Optional[str]:
@@ -313,14 +342,71 @@ def _model_dump(value: Any) -> Dict[str, Any]:
     return value.dict()
 
 
-def _render_agent_page(config: OpenAPIAgentConfig, base_path: str) -> str:
+def _render_agent_page(
+    config: OpenAPIAgentConfig, base_path: str, request: Request
+) -> str:
     title = escape(config.title)
-    description = escape(config.description)
+    description_value = _resolved_description(config)
+    description = escape(description_value)
+    backend_url = str(request.base_url).rstrip("/")
+    page_copy = {
+        "en": {
+            "integrate_title": "Frontend integration",
+            "integrate_help": "Configure the widget and request connector, then add the generated script to your frontend page. Backend addresses are filled in automatically.",
+            "auth_comment": "Replace yourAuthConnector with your application's auth connector.",
+            "container_comment": "Uncomment to embed the widget in a fixed container.",
+            "integration_code": "Frontend integration code",
+            "aria": "OpenAPI agent",
+        },
+        "zh": {
+            "integrate_title": "前端接入",
+            "integrate_help": "配置组件和请求连接器，再将生成的脚本添加到前端页面；后端地址已自动拼接。",
+            "auth_comment": "将 yourAuthConnector 替换为项目现有的鉴权连接器。",
+            "container_comment": "如需固定嵌入容器，可取消下一行注释。",
+            "integration_code": "前端接入代码",
+            "aria": "OpenAPI 助手",
+        },
+    }[config.language]
+    integration_code = f'''<script>
+  window.OpenAgent = {{
+    baseUrl: {json.dumps(f"{backend_url}{base_path}", ensure_ascii=False)},
+    title: {json.dumps(config.title, ensure_ascii=False)},
+    welcomeTitle: {json.dumps(config.welcome_title, ensure_ascii=False)},
+    description: {json.dumps(description_value, ensure_ascii=False)},
+    language: {json.dumps(config.language)},
+    theme: {json.dumps(config.theme)},
+    open: {str(config.open_by_default).lower()},
+    width: 560,
+    minWidth: 420,
+    maxWidth: 920,
+    // {page_copy["container_comment"]}
+    // container: "#agent-root",
+
+    // {page_copy["auth_comment"]}
+    async request(input) {{
+      const token = await yourAuthConnector.getAccessToken();
+
+      return fetch(input.url, {{
+        method: input.method,
+        headers: {{
+          ...input.headers,
+          Authorization: `Bearer ${{token}}`
+        }},
+        body: input.body,
+        credentials: "include"
+      }});
+    }}
+  }};
+</script>
+<script src={json.dumps(f"{backend_url}{base_path}/sidebar.js")}></script>'''
+    highlighted_integration_code = _highlight_code(integration_code)
     client_config = json.dumps(
         {
             "baseUrl": base_path,
             "title": config.title,
-            "description": config.description,
+            "welcomeTitle": config.welcome_title,
+            "description": description_value,
+            "language": config.language,
             "container": "#openagent-root",
             "open": config.open_by_default,
             "theme": config.theme,
@@ -330,7 +416,7 @@ def _render_agent_page(config: OpenAPIAgentConfig, base_path: str) -> str:
         }
     )
     return f"""<!doctype html>
-<html lang=\"en\">
+<html lang=\"{config.language}\">
   <head>
     <meta charset=\"utf-8\" />
     <meta name=\"viewport\" content=\"width=device-width, initial-scale=1\" />
@@ -359,19 +445,25 @@ def _render_agent_page(config: OpenAPIAgentConfig, base_path: str) -> str:
         align-items: stretch;
         padding: 0;
       }}
-      .hero {{ align-self: center; max-width: 520px; padding: 48px 0 48px 56px; }}
-      .eyebrow {{ display: inline-flex; align-items: center; gap: 6px; color: #c87555; font-size: 11px; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; margin-bottom: 18px; }}
-      .eyebrow::before {{ content: \"\"; width: 6px; height: 6px; border-radius: 50%; background: currentColor; }}
+      .hero {{ align-self: center; width: 100%; min-width: 0; max-height: 100vh; overflow: auto; padding: 48px 0 48px 56px; }}
       h1 {{ font-size: clamp(40px, 6vw, 64px); font-weight: 500; line-height: 1.02; letter-spacing: -0.03em; margin: 0 0 14px; color: #2b2824; }}
       .lead {{ color: #6b6862; font-size: 17px; line-height: 1.7; margin: 0 0 28px; }}
-      .snippets {{ display: flex; flex-direction: column; gap: 10px; }}
-      .snippet {{ display: flex; gap: 10px; align-items: flex-start; font-size: 14px; color: #4a463f; line-height: 1.55; }}
-      .snippet code {{ background: rgba(200,117,85,.12); color: #c87555; border-radius: 7px; padding: 2px 7px; font: 600 13px/1.4 ui-monospace, SFMono-Regular, Consolas, monospace; flex-shrink: 0; }}
+      .integration {{ min-width: 0; }}
+      .integration-title {{ margin: 0 0 5px; color: #2b2824; font-size: 15px; font-weight: 700; }}
+      .integration-copy {{ margin: 0; color: #6b6862; font-size: 14px; line-height: 1.65; }}
+      .code-block {{ margin: 8px 0 0; overflow-x: auto; background: transparent; border: 0; padding: 0; }}
+      .code-block code {{ background: transparent; border: 0; border-radius: 0; padding: 0; font: 600 13px/1.6 ui-monospace, SFMono-Regular, Consolas, monospace; }}
+      .token-punctuation {{ color: #8b8176; }}
+      .token-tag {{ color: #b55233; }}
+      .token-attr {{ color: #536f9d; }}
+      .token-string {{ color: #477b58; }}
+      .token-keyword {{ color: #7557a8; }}
+      .token-comment {{ color: #8b8176; font-style: italic; }}
       #openagent-root {{ align-self: stretch; justify-self: end; height: 100vh; min-height: 0; }}
       @media (max-width: 960px) {{
         body {{ overflow: auto; }}
         .page {{ height: auto; min-height: 100vh; grid-template-columns: 1fr; padding: 28px 18px; gap: 24px; }}
-        .hero {{ max-width: none; padding: 0; }}
+        .hero {{ padding: 0; }}
         #openagent-root {{ justify-self: stretch; width: 100%; height: min(760px, calc(100vh - 56px)); min-height: 560px; }}
       }}
     </style>
@@ -379,18 +471,93 @@ def _render_agent_page(config: OpenAPIAgentConfig, base_path: str) -> str:
   <body>
     <main class=\"page\">
       <section class=\"hero\">
-        <span class=\"eyebrow\">OpenAgent</span>
         <h1>{title}</h1>
         <p class=\"lead\">{description}</p>
-        <div class=\"snippets\">
-          <div class=\"snippet\"><code>&lt;script&gt;</code><span>Drop <code>{base_path}/sidebar.js</code> into any page to add a floating assistant.</span></div>
-          <div class=\"snippet\"><code>Ctrl + E</code><span>Toggle the floating drawer from anywhere on the page.</span></div>
-          <div class=\"snippet\"><code>/_agent</code><span>Conversations, OpenAPI grounding, and LLM tools live on one route prefix.</span></div>
-        </div>
+        <section class=\"integration\">
+          <h2 class=\"integration-title\">{page_copy['integrate_title']}</h2>
+          <p class=\"integration-copy\">{page_copy['integrate_help']}</p>
+          <pre class=\"code-block\" aria-label=\"{page_copy['integration_code']}\"><code>{highlighted_integration_code}</code></pre>
+        </section>
       </section>
-      <section id=\"openagent-root\" aria-label=\"OpenAPI agent\"></section>
+      <section id=\"openagent-root\" aria-label=\"{page_copy['aria']}\"></section>
     </main>
     <script>window.OpenAgent = {client_config};</script>
     <script src=\"{base_path}/sidebar.js\"></script>
   </body>
 </html>"""
+
+
+def _highlight_code(source: str) -> str:
+    """Apply lightweight HTML/JavaScript highlighting to generated embed code."""
+
+    keywords = {"async", "await", "const", "false", "null", "return", "true"}
+    punctuation = set("<>{}[](),.;:=")
+    result: list[str] = []
+    index = 0
+    length = len(source)
+
+    while index < length:
+        if source.startswith("//", index):
+            end = source.find("\n", index)
+            if end == -1:
+                end = length
+            result.append(
+                '<span class="token-comment">'
+                + escape(source[index:end])
+                + "</span>"
+            )
+            index = end
+            continue
+
+        char = source[index]
+        if char in {'"', "'", "`"}:
+            quote = char
+            end = index + 1
+            while end < length:
+                if source[end] == "\\":
+                    end += 2
+                    continue
+                if source[end] == quote:
+                    end += 1
+                    break
+                end += 1
+            result.append(
+                '<span class="token-string">'
+                + escape(source[index:end])
+                + "</span>"
+            )
+            index = end
+            continue
+
+        if char.isalpha() or char in {"_", "$"}:
+            end = index + 1
+            while end < length and (
+                source[end].isalnum() or source[end] in {"_", "$"}
+            ):
+                end += 1
+            word = source[index:end]
+            following = source[end:].lstrip()
+            if word == "script":
+                token_class = "token-tag"
+            elif word in keywords:
+                token_class = "token-keyword"
+            elif following.startswith(":") or word == "src":
+                token_class = "token-attr"
+            else:
+                token_class = ""
+            if token_class:
+                result.append(f'<span class="{token_class}">{escape(word)}</span>')
+            else:
+                result.append(escape(word))
+            index = end
+            continue
+
+        if char in punctuation:
+            result.append(
+                f'<span class="token-punctuation">{escape(char)}</span>'
+            )
+        else:
+            result.append(escape(char))
+        index += 1
+
+    return "".join(result)

@@ -71,6 +71,18 @@ def test_agent_serves_page_and_sidebar() -> None:
 
     assert page.status_code == 200
     assert "OpenAgent" in page.text
+    assert 'class="eyebrow"' not in page.text
+    assert "max-width: 520px" not in page.text
+    assert '<section class="integration">' in page.text
+    assert "http://testserver/_agent/sidebar.js" in page.text
+    assert '<h2 class="integration-title">Frontend integration</h2>' in page.text
+    assert "step-index" not in page.text
+    assert "background: transparent; border: 0" in page.text
+    assert "yourAuthConnector" in page.text
+    assert "Authorization" in page.text
+    assert "credentials" in page.text
+    assert "welcomeTitle" in page.text
+    assert "maxWidth" in page.text
     assert sidebar.status_code == 200
     assert "foa-loader-frame" in sidebar.text
     assert "/widget/" in sidebar.text
@@ -84,6 +96,77 @@ def test_agent_config_preserves_responder_positional_argument() -> None:
 
     assert config.responder is responder
     assert config.agent is None
+
+
+def test_agent_exposes_configurable_widget_copy() -> None:
+    app = FastAPI()
+    install_openapi_agent(
+        app,
+        title="Combined agent title",
+        welcome_title="What can I do for you?",
+        description="Ask a question or request a report.",
+        auto_llm=False,
+    )
+
+    page, config = request_app(
+        app,
+        [("GET", "/_agent/", {}), ("GET", "/_agent/config", {})],
+    )
+
+    assert '"title": "Combined agent title"' in page.text
+    assert '"welcomeTitle": "What can I do for you?"' in page.text
+    assert config.json()["title"] == "Combined agent title"
+    assert config.json()["welcomeTitle"] == "What can I do for you?"
+    assert config.json()["description"] == "Ask a question or request a report."
+
+
+def test_agent_supports_chinese_at_integration_time() -> None:
+    app = FastAPI(title="库存 API")
+
+    @app.get("/items", summary="列出库存")
+    def list_items() -> list[dict[str, str]]:
+        return [{"name": "路由器"}]
+
+    install_openapi_agent(app, language="zh", auto_llm=False)
+
+    page, config, chat = request_app(
+        app,
+        [
+            ("GET", "/_agent/", {}),
+            ("GET", "/_agent/config", {}),
+            ("POST", "/_agent/chat", {"json": {"message": "有哪些库存接口？"}}),
+        ],
+    )
+
+    assert '<html lang="zh">' in page.text
+    assert "询问有关此服务 OpenAPI 接口的问题。" in page.text
+    assert '<h2 class="integration-title">前端接入</h2>' in page.text
+    assert "访问智能助手页面进行调试" not in page.text
+    assert "Ctrl + E" not in page.text
+    assert config.json()["language"] == "zh"
+    assert config.json()["description"] == "询问有关此服务 OpenAPI 接口的问题。"
+    assert "以下接口" in chat.json()["answer"]
+    assert "GET /items" in chat.json()["answer"]
+
+
+def test_agent_rejects_unsupported_language() -> None:
+    with pytest.raises(ValueError, match="Unsupported language"):
+        install_openapi_agent(FastAPI(), language="fr")
+
+
+def test_chat_request_context_can_select_language() -> None:
+    response = request_app(
+        build_app(),
+        [
+            (
+                "POST",
+                "/_agent/chat",
+                {"json": {"message": "List users", "context": {"language": "zh"}}},
+            )
+        ],
+    )[0]
+
+    assert "以下接口" in response.json()["answer"]
 
 
 def test_agent_serves_widget_spa() -> None:
@@ -326,6 +409,26 @@ def test_llm_responder_calls_litellm_with_provider_neutral_config() -> None:
     assert "component_schemas" not in context_text
     assert "POST /users" in response.answer
     assert response.operations[0].path == "/users"
+
+
+def test_llm_responder_honors_selected_language() -> None:
+    captured: dict[str, object] = {}
+
+    async def completion(**kwargs: object) -> dict[str, object]:
+        captured.update(kwargs)
+        return {"choices": [{"message": {"content": "请使用 GET /users。"}}]}
+
+    responder = create_llm_responder(
+        model="openai/gpt-4o-mini",
+        language="zh",
+        completion=completion,
+    )
+    response = asyncio.run(
+        responder(AgentRequest(message="List users"), build_app().openapi())
+    )
+
+    assert "Always answer in Simplified Chinese" in captured["messages"][0]["content"]
+    assert response.answer == "请使用 GET /users。"
 
 
 def test_llm_responder_handles_real_litellm_model_response(monkeypatch) -> None:

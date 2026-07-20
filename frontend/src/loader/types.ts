@@ -1,7 +1,9 @@
 export type LoaderConfig = {
   baseUrl?: string;
   title?: string;
+  welcomeTitle?: string;
   description?: string;
+  language?: "en" | "zh";
   container?: string | HTMLElement;
   theme?: "default" | "ocean";
   open?: boolean;

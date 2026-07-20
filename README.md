@@ -3,7 +3,7 @@
 [![Documentation](https://img.shields.io/badge/docs-online-4051b5?logo=materialformkdocs&logoColor=white)](https://yangsengui.github.io/fastapi-openapi-agent/)
 [![Documentation CI](https://github.com/yangsengui/fastapi-openapi-agent/actions/workflows/docs.yml/badge.svg)](https://github.com/yangsengui/fastapi-openapi-agent/actions/workflows/docs.yml)
 
-OpenAgent is an OpenAPI-native API agent for FastAPI. It mounts an assistant on top of an existing FastAPI app, reads the app's OpenAPI schema, and can answer questions, inspect operation contracts, and optionally execute host API calls in-process through ASGI.
+OpenAgent is an OpenAPI-native API agent for FastAPI and Django Ninja. It mounts an assistant on top of an existing API, reads the app's OpenAPI schema, and can answer questions, inspect operation contracts, and optionally execute host API calls in-process through ASGI.
 
 The PyPI distribution name is `fastapi-openapi-agent`. The Python import package is `openagent`.
 
@@ -14,6 +14,7 @@ Documentation: [Online documentation](https://yangsengui.github.io/fastapi-opena
 ## Features
 
 - One-line FastAPI integration with `install_openapi_agent(app)`.
+- One-line Django Ninja integration with `install_openapi_agent(api)`.
 - Framework-neutral OpenAPI runtime for operation search, contract lookup, and tool execution.
 - Built-in agent page at `/_agent/` and embeddable widget at `/_agent/widget/`.
 - Static sidebar loader at `/_agent/sidebar.js` for adding a floating API assistant to any page.
@@ -30,6 +31,12 @@ Install the FastAPI adapter:
 
 ```bash
 pip install "fastapi-openapi-agent[fastapi]"
+```
+
+Install the Django Ninja adapter:
+
+```bash
+pip install "fastapi-openapi-agent[django-ninja]"
 ```
 
 Add the LiteLLM integration when using an external model:
@@ -75,6 +82,7 @@ install_openapi_agent(
     app,
     path="/api-agent",
     title="Service Agent",
+    welcome_title="How can I help?",
     description="Ask questions about this service API.",
 )
 ```
@@ -89,11 +97,65 @@ install_openapi_agent(
 )
 ```
 
+### Internationalization
+
+Choose the UI and assistant language when installing the agent. English (`en`) is the default; Simplified Chinese (`zh`) is also supported:
+
+```python
+install_openapi_agent(
+    app,
+    language="zh",
+)
+```
+
+The setting localizes the standalone page, widget controls, built-in responder, runtime messages, and the language instruction sent to LiteLLM. Custom titles and descriptions are preserved.
+
+When embedding `sidebar.js` directly, the language can be selected in the browser configuration. The widget sends this choice with chat requests so the built-in backend uses the same language:
+
+```html
+<script>
+  window.OpenAgent = {
+    baseUrl: "/_agent",
+    language: "zh"
+  };
+</script>
+<script src="/_agent/sidebar.js"></script>
+```
+
 By default, live execution only allows `GET`, `HEAD`, and `OPTIONS`. If your product explicitly allows write operations, enable mutating calls:
 
 ```python
 install_openapi_agent(app, allow_mutating_api_calls=True)
 ```
+
+## Django Ninja Integration
+
+Install the agent on the `NinjaAPI` before exposing `api.urls` from your Django URL configuration:
+
+```python
+from django.urls import path
+from ninja import NinjaAPI
+
+from openagent.django_ninja import install_openapi_agent
+
+api = NinjaAPI(title="My API")
+
+
+@api.get("/health", summary="Service health check")
+def health(request):
+    return {"status": "ok"}
+
+
+install_openapi_agent(api)
+
+urlpatterns = [
+    path("api/", api.urls),
+]
+```
+
+With this URL configuration, open `/api/_agent/`. The adapter detects the Django mount prefix, excludes its own routes from the OpenAPI document by default, and executes allowed host operations through Django's ASGI application.
+
+The Django Ninja adapter accepts the same common configuration options as the FastAPI adapter. It additionally supports `openapi_path_prefix` when automatic Django URL reversing is unavailable, and `asgi_app` when host calls must use a custom wrapped ASGI application. Use Django's ASGI deployment mode for incremental SSE delivery.
 
 ## Frontend Embed
 
@@ -110,6 +172,9 @@ Configure cross-path or cross-origin embedding:
   window.OpenAgent = {
     baseUrl: "https://api.example.com/_agent",
     title: "API Assistant",
+    welcomeTitle: "How can I help?",
+    description: "Ask questions or request a report.",
+    language: "en",
     open: false,
     width: 560,
     minWidth: 420,

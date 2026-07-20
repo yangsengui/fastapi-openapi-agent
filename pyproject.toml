@@ -5,16 +5,17 @@ build-backend = "hatchling.build"
 [project]
 name = "fastapi-openapi-agent"
 version = "0.1.0"
-description = "An OpenAPI-native API agent and embeddable FastAPI assistant."
+description = "An OpenAPI-native API agent for FastAPI and Django Ninja."
 readme = "README.md"
 requires-python = ">=3.9"
 license = { file = "LICENSE" }
 authors = [
   { name = "openagent contributors" }
 ]
-keywords = ["openapi", "agent", "api", "fastapi", "llm", "sidebar", "sse"]
+keywords = ["openapi", "agent", "api", "fastapi", "django-ninja", "llm", "sidebar", "sse"]
 classifiers = [
   "Development Status :: 3 - Alpha",
+  "Framework :: Django",
   "Framework :: FastAPI",
   "Intended Audience :: Developers",
   "License :: OSI Approved :: MIT License",
@@ -46,11 +47,17 @@ Changelog = "https://github.com/yangsengui/fastapi-openapi-agent/blob/main/CHANG
 fastapi = [
   "fastapi>=0.100.0"
 ]
+django-ninja = [
+  "django>=4.2",
+  "django-ninja>=1.0"
+]
 llm = [
   "litellm>=1.40.0,<2.0.0",
   "orjson>=3.9.0"
 ]
 dev = [
+  "django>=4.2",
+  "django-ninja>=1.0",
   "fastapi>=0.100.0",
   "pytest>=7.4.0",
   "uvicorn[standard]>=0.23.0",

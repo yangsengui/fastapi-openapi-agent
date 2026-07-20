@@ -55,8 +55,10 @@ def get_item(item_id: int) -> Item:
 
 install_openapi_agent(
     app,
-    title="Demo API Agent",
+    title="OpenAPI-aware Demo API Agent",
+    welcome_title="How can I help with your data?",
     description="Ask questions about the demo inventory OpenAPI schema.",
+    language="zh",
     allow_mutating_api_calls=True,
     llm_model_kwargs={"num_retries": 2},
 )

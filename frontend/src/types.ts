@@ -1,9 +1,12 @@
 export type ThemePreset = "default" | "ocean";
+export type Language = "en" | "zh";
 
 export type WidgetConfig = {
   baseUrl: string;
   title: string;
+  welcomeTitle: string | null;
   description: string;
+  language: Language;
   theme: ThemePreset;
   mode: "floating" | "embedded";
   requestBridge: boolean;
