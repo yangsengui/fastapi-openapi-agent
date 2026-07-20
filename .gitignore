@@ -16,6 +16,7 @@ env/
 node_modules/
 dist/
 build/
+site/
 .next/
 
 .DS_Store

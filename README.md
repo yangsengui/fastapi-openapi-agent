@@ -1,10 +1,15 @@
 # OpenAgent
 
+[![Documentation](https://img.shields.io/badge/docs-online-4051b5?logo=materialformkdocs&logoColor=white)](https://yangsengui.github.io/fastapi-openapi-agent/)
+[![Documentation CI](https://github.com/yangsengui/fastapi-openapi-agent/actions/workflows/docs.yml/badge.svg)](https://github.com/yangsengui/fastapi-openapi-agent/actions/workflows/docs.yml)
+
 OpenAgent is an OpenAPI-native API agent for FastAPI. It mounts an assistant on top of an existing FastAPI app, reads the app's OpenAPI schema, and can answer questions, inspect operation contracts, and optionally execute host API calls in-process through ASGI.
 
 The PyPI distribution name is `fastapi-openapi-agent`. The Python import package is `openagent`.
 
 > Status: alpha. APIs may change before the first stable release.
+
+Documentation: [Online documentation](https://yangsengui.github.io/fastapi-openapi-agent/) · [5-minute quickstart](https://yangsengui.github.io/fastapi-openapi-agent/getting-started/) · [OpenAPI quality guide](https://yangsengui.github.io/fastapi-openapi-agent/guides/openapi-quality/)
 
 ## Features
 

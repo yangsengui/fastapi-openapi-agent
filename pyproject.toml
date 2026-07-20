@@ -39,6 +39,7 @@ dependencies = [
 Homepage = "https://github.com/yangsengui/fastapi-openapi-agent"
 Repository = "https://github.com/yangsengui/fastapi-openapi-agent"
 Issues = "https://github.com/yangsengui/fastapi-openapi-agent/issues"
+Documentation = "https://yangsengui.github.io/fastapi-openapi-agent/"
 Changelog = "https://github.com/yangsengui/fastapi-openapi-agent/blob/main/CHANGELOG.md"
 
 [project.optional-dependencies]
@@ -56,6 +57,9 @@ dev = [
   "build>=1.2.0",
   "twine>=5.0.0"
 ]
+docs = [
+  "mkdocs-material>=9.6.0,<10.0.0"
+]
 release = [
   "build>=1.2.0",
   "twine>=5.0.0"
@@ -70,9 +74,11 @@ include = [
   "LICENSE",
   "src",
   "frontend",
+  "docs",
   "examples",
   "tests",
   "README.md",
+  "mkdocs.yml",
   "devyard.yml"
 ]
 
