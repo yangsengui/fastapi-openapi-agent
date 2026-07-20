@@ -46,4 +46,4 @@ Yes. Supply a custom `responder`, or build a backend with `AgentBackend`, `Agent
 
 ## How do I switch documentation languages?
 
-Use the language selector in the site header. Chinese is served from the site root and English from `/en/`. The selector keeps you on the equivalent page when a translation exists.
+Use the language selector in the site header. English is served from the site root and Chinese from `/zh/`. The selector keeps you on the equivalent page when a translation exists.

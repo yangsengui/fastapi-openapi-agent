@@ -30,7 +30,7 @@ Build in strict mode:
 mkdocs build --strict
 ```
 
-Documentation source lives under `docs/` and navigation is defined in `mkdocs.yml`. Chinese is the default language at the site root. English translations use the `.en.md` suffix and are published under `/en/`. Every new user-facing page should ship in both languages; `fallback_to_default: false` makes CI reject missing translations.
+Documentation source lives under `docs/` and navigation is defined in `mkdocs.yml`. English is the default language at the site root and uses the `.en.md` suffix. Chinese translations use `.zh.md` and are published under `/zh/`. Every new user-facing page should ship in both languages; `fallback_to_default: false` makes CI reject missing translations.
 
 The `Documentation` workflow builds every pull request and deploys GitHub Pages after changes reach `main`. A successful deployment updates the `github-pages` environment and the `docs online` badge in the repository README points to the live site.
 

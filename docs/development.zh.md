@@ -30,7 +30,7 @@ mkdocs serve
 mkdocs build --strict
 ```
 
-文档源码位于 `docs/`，导航位于 `mkdocs.yml`。中文是根路径下的默认语言，英文翻译使用 `.en.md` 后缀并发布到 `/en/`。新增面向用户的页面必须同时提供两个语言版本；`fallback_to_default: false` 会让 CI 拒绝缺少翻译的页面。内部链接始终使用不带语言后缀的相对路径。
+文档源码位于 `docs/`，导航位于 `mkdocs.yml`。英文是根路径下的默认语言，使用 `.en.md` 后缀；中文翻译使用 `.zh.md` 后缀并发布到 `/zh/`。新增面向用户的页面必须同时提供两个语言版本；`fallback_to_default: false` 会让 CI 拒绝缺少翻译的页面。内部链接始终使用不带语言后缀的相对路径。
 
 仓库的 `Documentation` workflow 会在 pull request 中严格构建，并在 `main` 的文档变更后部署 GitHub Pages。部署成功后，README 顶部的 `docs online` 徽章和仓库的 `github-pages` deployment 都会指向在线文档。
 

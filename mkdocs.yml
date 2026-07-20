@@ -75,11 +75,8 @@ plugins:
       reconfigure_material: true
       reconfigure_search: true
       languages:
-        - locale: zh
-          default: true
-          name: 简体中文
-          build: true
         - locale: en
+          default: true
           name: English
           build: true
           site_description: Build a conversational, executable API Agent from a high-quality OpenAPI definition in one line
@@ -98,5 +95,8 @@ plugins:
             参与项目: Project
             开发与贡献: Development and contribution
             常见问题: FAQ
+        - locale: zh
+          name: 简体中文
+          build: true
 
 copyright: Copyright &copy; OpenAgent contributors · MIT License
