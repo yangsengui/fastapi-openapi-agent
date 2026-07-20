@@ -58,7 +58,8 @@ dev = [
   "twine>=5.0.0"
 ]
 docs = [
-  "mkdocs-material>=9.6.0,<10.0.0"
+  "mkdocs-material>=9.6.0,<10.0.0",
+  "mkdocs-static-i18n>=1.2.0,<2.0.0"
 ]
 release = [
   "build>=1.2.0",
