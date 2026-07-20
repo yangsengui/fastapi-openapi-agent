@@ -17,7 +17,7 @@ export function Composer({ draft, busy, textareaRef, onDraftChange, onSubmit }: 
     const element = textareaRef.current;
     if (!element) return;
     element.style.height = "auto";
-    element.style.height = `${Math.min(element.scrollHeight, 156)}px`;
+    element.style.height = `${draft ? Math.min(element.scrollHeight, 156) : 50}px`;
   }, [draft, textareaRef]);
 
   return (
@@ -38,12 +38,9 @@ export function Composer({ draft, busy, textareaRef, onDraftChange, onSubmit }: 
             }
           }}
         />
-        <div className={ui.composerFooter}>
-          <span className={ui.composerHint}>Enter to send · Shift Enter for newline</span>
-          <button className={ui.sendButton} type="submit" disabled={busy || !draft.trim()} aria-label={busy ? "Sending" : "Send message"}>
-            {busy ? <LoaderCircle className="animate-spin" size={18} strokeWidth={2.4} /> : <SendHorizontal size={18} strokeWidth={2.4} />}
-          </button>
-        </div>
+        <button className={ui.sendButton} type="submit" disabled={busy || !draft.trim()} aria-label={busy ? "Sending" : "Send message"}>
+          {busy ? <LoaderCircle className="animate-spin" size={18} strokeWidth={2.4} /> : <SendHorizontal size={18} strokeWidth={2.4} />}
+        </button>
       </div>
     </form>
   );

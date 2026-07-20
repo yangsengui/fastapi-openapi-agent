@@ -4,7 +4,7 @@ All notable changes to this project will be documented in this file.
 
 This project follows semantic versioning after the first public release.
 
-## 0.1.0 - Unreleased
+## 0.1.0 - 2026-07-20
 
 - Initial FastAPI adapter for mounting an OpenAPI-aware agent under `/_agent`.
 - Embeddable iframe widget and `sidebar.js` loader.

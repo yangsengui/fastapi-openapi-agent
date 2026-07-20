@@ -7,6 +7,7 @@ const styles = {
   tableWrap: "my-2 max-w-full overflow-x-auto rounded-xl border border-[var(--foa-border)] bg-[rgba(255,255,255,0.5)]",
   table: "w-full border-collapse text-[13px]",
   cell: "border border-[var(--foa-border)] px-[9px] py-1.5 text-left",
+  horizontalRule: "my-3 h-px w-full border-0 bg-[var(--foa-border)]",
 };
 
 export function renderMarkdown(value: string): string {
@@ -16,6 +17,10 @@ export function renderMarkdown(value: string): string {
     (_match, code: string) => `<pre class="${styles.codeBlock}"><code>${code.replace(/^\n/, "")}</code></pre>`,
   );
   html = renderTables(html);
+  html = html.replace(
+    /^[ \t]{0,3}(?:(?:\*[ \t]*){3,}|(?:-[ \t]*){3,}|(?:_[ \t]*){3,})$/gm,
+    `\n\n<hr class="${styles.horizontalRule}" />\n\n`,
+  );
   html = html.replace(/`([^`\n]+)`/g, `<code class="${styles.inlineCode}">$1</code>`);
   html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
   html = html
@@ -32,7 +37,8 @@ export function renderMarkdown(value: string): string {
   );
   return html
     .split(/\n{2,}/)
-    .map((block) => (/^<(h\d|ul|pre|div)/.test(block) ? block : `<p class="${styles.paragraph}">${block.replace(/\n/g, "<br />")}</p>`))
+    .filter(Boolean)
+    .map((block) => (/^<(h\d|ul|pre|div|hr)/.test(block) ? block : `<p class="${styles.paragraph}">${block.replace(/\n/g, "<br />")}</p>`))
     .join("");
 }
 

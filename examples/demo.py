@@ -58,4 +58,5 @@ install_openapi_agent(
     title="Demo API Agent",
     description="Ask questions about the demo inventory OpenAPI schema.",
     allow_mutating_api_calls=True,
+    llm_model_kwargs={"num_retries": 2},
 )

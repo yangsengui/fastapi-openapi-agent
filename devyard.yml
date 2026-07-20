@@ -6,7 +6,7 @@ env:
 
 services:
   api:
-    command: "python -m uvicorn examples.demo:app --host 0.0.0.0 --port $PORT --reload"
+    command: "set -a; . ./.env; set +a; exec python -m uvicorn examples.demo:app --host 0.0.0.0 --port $PORT --reload"
     workdir: .
     port: auto
     publish: true
@@ -17,5 +17,5 @@ services:
 scripts:
   install: python -m pip install -e ".[dev]" && npm install --prefix frontend
   build: npm run build --prefix frontend
-  dev: devyard up -d
+  dev: devyard up
   test: npm run check --prefix frontend && npm run build --prefix frontend && pytest

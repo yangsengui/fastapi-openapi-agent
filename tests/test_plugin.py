@@ -1,9 +1,9 @@
 import asyncio
 import json
 
+import httpx
 import pytest
 from fastapi import FastAPI
-from fastapi.testclient import TestClient
 from pydantic import BaseModel
 
 from openagent import (
@@ -27,6 +27,22 @@ class UserCreate(BaseModel):
     email: str
 
 
+def request_app(
+    app: FastAPI, requests: list[tuple[str, str, dict[str, object]]]
+) -> list[httpx.Response]:
+    async def send() -> list[httpx.Response]:
+        transport = httpx.ASGITransport(app=app)
+        async with httpx.AsyncClient(
+            transport=transport, base_url="http://testserver"
+        ) as client:
+            return [
+                await client.request(method, path, **kwargs)
+                for method, path, kwargs in requests
+            ]
+
+    return asyncio.run(send())
+
+
 def build_app() -> FastAPI:
     app = FastAPI(title="Test API")
 
@@ -48,10 +64,10 @@ def build_app() -> FastAPI:
 
 
 def test_agent_serves_page_and_sidebar() -> None:
-    client = TestClient(build_app())
-
-    page = client.get("/_agent/")
-    sidebar = client.get("/_agent/sidebar.js")
+    page, sidebar = request_app(
+        build_app(),
+        [("GET", "/_agent/", {}), ("GET", "/_agent/sidebar.js", {})],
+    )
 
     assert page.status_code == 200
     assert "OpenAgent" in page.text
@@ -71,9 +87,7 @@ def test_agent_config_preserves_responder_positional_argument() -> None:
 
 
 def test_agent_serves_widget_spa() -> None:
-    client = TestClient(build_app())
-
-    widget = client.get("/_agent/widget/")
+    widget = request_app(build_app(), [("GET", "/_agent/widget/", {})])[0]
 
     assert widget.status_code == 200
     assert "OpenAgent" in widget.text
@@ -187,9 +201,7 @@ def test_operation_catalog_filters_method_before_ranking_limit() -> None:
 
 
 def test_agent_exposes_host_openapi_schema() -> None:
-    client = TestClient(build_app())
-
-    response = client.get("/_agent/openapi")
+    response = request_app(build_app(), [("GET", "/_agent/openapi", {})])[0]
 
     assert response.status_code == 200
     assert "/users" in response.json()["paths"]
@@ -197,9 +209,10 @@ def test_agent_exposes_host_openapi_schema() -> None:
 
 
 def test_agent_chat_returns_matching_operations() -> None:
-    client = TestClient(build_app())
-
-    response = client.post("/_agent/chat", json={"message": "How do I create a user?"})
+    response = request_app(
+        build_app(),
+        [("POST", "/_agent/chat", {"json": {"message": "How do I create a user?"}})],
+    )[0]
 
     assert response.status_code == 200
     body = response.json()
@@ -241,10 +254,13 @@ def build_sdk_app() -> FastAPI:
 
 
 def test_custom_agent_sdk_handles_json_and_stream_routes() -> None:
-    client = TestClient(build_sdk_app())
-
-    response = client.post("/_agent/chat", json={"message": "list projects"})
-    stream = client.post("/_agent/chat/stream", json={"message": "list projects"})
+    response, stream = request_app(
+        build_sdk_app(),
+        [
+            ("POST", "/_agent/chat", {"json": {"message": "list projects"}}),
+            ("POST", "/_agent/chat/stream", {"json": {"message": "list projects"}}),
+        ],
+    )
 
     assert response.status_code == 200
     assert response.json()["answer"].startswith("Selected GET /projects")
@@ -257,9 +273,16 @@ def test_custom_agent_sdk_handles_json_and_stream_routes() -> None:
 
 
 def test_agent_stream_endpoint_falls_back_to_responder() -> None:
-    client = TestClient(build_app())
-
-    response = client.post("/_agent/chat/stream", json={"message": "How do I create a user?"})
+    response = request_app(
+        build_app(),
+        [
+            (
+                "POST",
+                "/_agent/chat/stream",
+                {"json": {"message": "How do I create a user?"}},
+            )
+        ],
+    )[0]
 
     assert response.status_code == 200
     assert "text-delta" in response.text
@@ -305,7 +328,8 @@ def test_llm_responder_calls_litellm_with_provider_neutral_config() -> None:
     assert response.operations[0].path == "/users"
 
 
-def test_llm_responder_handles_real_litellm_model_response() -> None:
+def test_llm_responder_handles_real_litellm_model_response(monkeypatch) -> None:
+    monkeypatch.setenv("LITELLM_LOCAL_MODEL_COST_MAP", "True")
     pytest.importorskip("litellm")
     responder = create_llm_responder(
         model="openai/gpt-4o-mini",
@@ -339,7 +363,10 @@ def test_fastapi_auto_llm_uses_configured_model(monkeypatch) -> None:
         llm_api_key="configured-key",
     )
 
-    response = TestClient(app).post("/_agent/chat", json={"message": "Is it healthy?"})
+    response = request_app(
+        app,
+        [("POST", "/_agent/chat", {"json": {"message": "Is it healthy?"}})],
+    )[0]
 
     assert response.status_code == 200
     assert response.json()["answer"] == "Configured model response."
@@ -543,15 +570,19 @@ def test_runtime_can_execute_readonly_host_api() -> None:
     app = build_app()
     runtime = FastAPIRuntime(app, app.openapi(), agent_path="/_agent")
 
-    blocked = asyncio.run(
-        runtime.run_tool("operation_request", {"operationId": "list_users_users_get"})
-    )
-    loaded = asyncio.run(
-        runtime.run_tool("operation_get", {"operationId": "list_users_users_get"})
-    )
-    result = asyncio.run(
-        runtime.run_tool("operation_request", {"operationId": "list_users_users_get"})
-    )
+    async def execute() -> tuple[dict[str, object], dict[str, object], dict[str, object]]:
+        blocked = await runtime.run_tool(
+            "operation_request", {"operationId": "list_users_users_get"}
+        )
+        loaded = await runtime.run_tool(
+            "operation_get", {"operationId": "list_users_users_get"}
+        )
+        result = await runtime.run_tool(
+            "operation_request", {"operationId": "list_users_users_get"}
+        )
+        return blocked, loaded, result
+
+    blocked, loaded, result = asyncio.run(execute())
 
     assert blocked["ok"] is False
     assert "operation_get" in blocked["error"]

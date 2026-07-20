@@ -336,7 +336,7 @@ With devyard:
 ```bash
 devyard run install
 devyard run build
-devyard up -d
+devyard up
 devyard status
 ```
 
