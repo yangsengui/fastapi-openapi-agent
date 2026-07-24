@@ -3,13 +3,40 @@
 [![Documentation](https://img.shields.io/badge/docs-online-4051b5?logo=materialformkdocs&logoColor=white)](https://yangsengui.github.io/fastapi-openapi-agent/)
 [![Documentation CI](https://github.com/yangsengui/fastapi-openapi-agent/actions/workflows/docs.yml/badge.svg)](https://github.com/yangsengui/fastapi-openapi-agent/actions/workflows/docs.yml)
 
-OpenAgent is an OpenAPI-native API agent for FastAPI and Django Ninja. It mounts an assistant on top of an existing API, reads the app's OpenAPI schema, and can answer questions, inspect operation contracts, and optionally execute host API calls in-process through ASGI.
+**Turn an existing FastAPI or Django Ninja API into a read-only-by-default,
+embeddable AI agent using the OpenAPI schema you already maintain.**
 
-The PyPI distribution name is `fastapi-openapi-agent`. The Python import package is `openagent`.
+Your API already describes its operations, parameters, and response schemas in
+OpenAPI. OpenAgent uses that contract directly, so you do not have to maintain a
+second handwritten set of agent tools.
+
+```bash
+pip install "fastapi-openapi-agent[fastapi]"
+```
+
+```python
+from fastapi import FastAPI
+from openagent.fastapi import install_openapi_agent
+
+app = FastAPI(title="My API")
+install_openapi_agent(app)
+```
+
+Open `/_agent/` for the standalone assistant, or embed the included widget in
+your existing application.
 
 > Status: alpha. APIs may change before the first stable release.
 
 Documentation: [Online documentation](https://yangsengui.github.io/fastapi-openapi-agent/) · [5-minute quickstart](https://yangsengui.github.io/fastapi-openapi-agent/getting-started/) · [OpenAPI quality guide](https://yangsengui.github.io/fastapi-openapi-agent/guides/openapi-quality/)
+
+## Why OpenAgent
+
+- **One source of truth:** operation discovery and contracts come from the running application's OpenAPI document.
+- **Fits an existing app:** mount it inside FastAPI or Django Ninja instead of deploying a separate agent service.
+- **Read-only by default:** only `GET`, `HEAD`, and `OPTIONS` are executable until mutating operations are explicitly enabled.
+- **Bring your model:** use the deterministic local responder during integration or configure supported providers through LiteLLM.
+
+The PyPI distribution name is `fastapi-openapi-agent`. The Python import package is `openagent`.
 
 ## Features
 
