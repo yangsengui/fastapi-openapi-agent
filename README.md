@@ -27,7 +27,7 @@ your existing application.
 
 > Status: alpha. APIs may change before the first stable release.
 
-Documentation: [Online documentation](https://yangsengui.github.io/fastapi-openapi-agent/) · [5-minute quickstart](https://yangsengui.github.io/fastapi-openapi-agent/getting-started/) · [OpenAPI quality guide](https://yangsengui.github.io/fastapi-openapi-agent/guides/openapi-quality/)
+Documentation: [Online documentation](https://yangsengui.github.io/fastapi-openapi-agent/) · [5-minute quickstart](https://yangsengui.github.io/fastapi-openapi-agent/getting-started/) · [Embedded Agent or MCP Server?](https://yangsengui.github.io/fastapi-openapi-agent/guides/embedded-agent-vs-mcp/) · [OpenAPI quality guide](https://yangsengui.github.io/fastapi-openapi-agent/guides/openapi-quality/)
 
 ## Why OpenAgent
 
