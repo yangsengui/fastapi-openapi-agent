@@ -38,6 +38,7 @@ nav:
   - 核心概念:
       - OpenAPI 如何变成 Agent: concepts/openapi-to-agent.md
       - OpenAPI 质量指南: guides/openapi-quality.md
+      - 嵌入式 Agent 还是 MCP Server: guides/embedded-agent-vs-mcp.md
   - 使用指南:
       - 配置与模型: guides/configuration.md
       - 前端嵌入: guides/embedding.md
@@ -86,6 +87,7 @@ plugins:
             核心概念: Core concepts
             OpenAPI 如何变成 Agent: How OpenAPI becomes an Agent
             OpenAPI 质量指南: OpenAPI quality guide
+            嵌入式 Agent 还是 MCP Server: Embedded Agent or MCP Server
             使用指南: Guides
             配置与模型: Configuration and models
             前端嵌入: Frontend embedding
